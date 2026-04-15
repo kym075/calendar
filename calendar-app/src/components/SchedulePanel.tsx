@@ -122,14 +122,14 @@ export function SchedulePanel({
   }
 
   return (
-    <section className="space-y-4 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
-      <header>
+    <section className="min-h-0 space-y-3 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 lg:flex lg:h-full lg:flex-col lg:space-y-3">
+      <header className="shrink-0">
         <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
           {format(selectedDate, 'M月d日')} の予定
         </h2>
       </header>
 
-      <div className="space-y-3">
+      <div className="shrink-0 space-y-3">
         <div>
           <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
             タイトル
@@ -225,7 +225,7 @@ export function SchedulePanel({
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
           その日の予定一覧
         </h3>

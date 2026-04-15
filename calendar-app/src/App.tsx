@@ -55,8 +55,8 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen p-4 text-slate-800 dark:text-slate-100 md:p-6">
-      <div className="mx-auto max-w-7xl space-y-4">
+    <main className="box-border h-screen overflow-hidden text-slate-800 dark:text-slate-100">
+      <div className="mx-auto flex h-full max-w-7xl flex-col gap-3 p-3 md:p-4">
         <header className="rounded-2xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
           <h1 className="text-xl font-bold">Calendar Learning App</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -77,7 +77,7 @@ function App() {
           </div>
         )}
 
-        <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <section className="min-h-0 flex-1 overflow-hidden grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <CalendarView
             viewMonth={viewMonth}
             selectedDate={selectedDate}
@@ -102,7 +102,7 @@ function App() {
         </section>
 
         {loading && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
             データ同期中...
           </p>
         )}

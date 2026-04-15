@@ -21,10 +21,11 @@ export function CalendarView({
   onSelectDate,
 }: CalendarViewProps) {
   const days = createMonthGrid(viewMonth)
+  const rowCount = Math.ceil(days.length / 7)
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
-      <header className="mb-3 flex items-center justify-between">
+    <section className="min-h-0 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 lg:flex lg:h-full lg:flex-col">
+      <header className="mb-2 flex items-center justify-between">
         <button
           type="button"
           className="rounded-md border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -44,7 +45,7 @@ export function CalendarView({
         </button>
       </header>
 
-      <div className="grid grid-cols-7 text-center text-xs font-semibold">
+      <div className="grid shrink-0 grid-cols-7 text-center text-xs font-semibold">
         {weekLabels.map((label, index) => (
           <div
             key={label}
@@ -61,7 +62,10 @@ export function CalendarView({
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700">
+      <div
+        className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700 lg:min-h-0 lg:flex-1"
+        style={{ gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` }}
+      >
         {days.map((date) => {
           const key = toDateKey(date)
           const schedules = schedulesByDate[key] ?? []
@@ -74,7 +78,7 @@ export function CalendarView({
               key={key}
               type="button"
               className={[
-                'min-h-24 bg-white p-2 text-left transition-colors',
+                'min-h-16 bg-white p-1.5 text-left transition-colors md:min-h-[4.5rem] md:p-2 lg:h-full lg:min-h-0',
                 'hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
                 inMonth
                   ? 'text-slate-800 dark:text-slate-100'
