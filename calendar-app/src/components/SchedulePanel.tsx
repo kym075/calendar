@@ -15,6 +15,14 @@ const colorClassMap: Record<ScheduleColor, string> = {
   rose: 'bg-rose-500',
   violet: 'bg-violet-500',
 }
+const colorLabelMap: Record<ScheduleColor, string> = {
+  slate: 'スレート',
+  sky: 'スカイ',
+  emerald: 'エメラルド',
+  amber: 'アンバー',
+  rose: 'ローズ',
+  violet: 'バイオレット',
+}
 
 const colorOptions: ScheduleColor[] = [
   'slate',
@@ -188,15 +196,23 @@ export function SchedulePanel({
                 key={option}
                 type="button"
                 className={[
-                  'h-6 w-6 rounded-full border-2',
+                  'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold text-white transition',
                   colorClassMap[option],
-                  color === option ? 'border-black/70 dark:border-white' : 'border-transparent',
+                  color === option
+                    ? 'scale-110 border-black/70 shadow-md dark:border-white'
+                    : 'border-transparent opacity-75 hover:opacity-100',
                 ].join(' ')}
                 onClick={() => setColor(option)}
                 aria-label={option}
-              />
+                aria-pressed={color === option}
+              >
+                {color === option ? '✓' : ''}
+              </button>
             ))}
           </div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            選択中: <span className="font-semibold">{colorLabelMap[color]}</span>
+          </p>
         </div>
 
         {formError && (
