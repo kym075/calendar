@@ -8,6 +8,8 @@ import { format, isValid, parseISO } from 'date-fns'
 import { ipcChannels } from '../shared/types/ipc'
 import {
   scheduleColors,
+  scheduleMemoMaxLength,
+  scheduleTitleMaxLength,
   type Schedule,
   type ScheduleColor,
   type ScheduleId,
@@ -91,8 +93,17 @@ async function saveSchedulesToDisk(items: Schedule[]): Promise<void> {
 }
 
 function validateScheduleInput(input: ScheduleInput): void {
-  if (input.title.trim().length === 0) {
+  const normalizedTitle = input.title.trim()
+  const normalizedMemo = input.memo.trim()
+
+  if (normalizedTitle.length === 0) {
     throw new Error('タイトルは必須です。')
+  }
+  if (normalizedTitle.length > scheduleTitleMaxLength) {
+    throw new Error(`タイトルは${scheduleTitleMaxLength}文字以内で入力してください。`)
+  }
+  if (normalizedMemo.length > scheduleMemoMaxLength) {
+    throw new Error(`メモは${scheduleMemoMaxLength}文字以内で入力してください。`)
   }
   if (!isScheduleColor(input.color)) {
     throw new Error('カテゴリーカラーが不正です。')

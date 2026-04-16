@@ -6,6 +6,8 @@ export const scheduleColors = [
   'rose',
   'violet',
 ] as const
+export const scheduleTitleMaxLength = 20
+export const scheduleMemoMaxLength = 120
 
 export type ScheduleColor = (typeof scheduleColors)[number]
 export type ScheduleId = string

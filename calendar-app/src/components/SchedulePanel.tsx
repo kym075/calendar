@@ -1,10 +1,14 @@
-import { format, isBefore, parseISO, set } from 'date-fns'
+import { format, isBefore, isSameDay, isValid, parse, parseISO, set } from 'date-fns'
 import { useEffect, useState } from 'react'
 import type {
   Schedule,
   ScheduleColor,
   ScheduleId,
   ScheduleInput,
+} from '../../shared/types/schedule'
+import {
+  scheduleMemoMaxLength,
+  scheduleTitleMaxLength,
 } from '../../shared/types/schedule'
 
 const colorClassMap: Record<ScheduleColor, string> = {
@@ -57,6 +61,19 @@ function toTimeInput(isoText: string): string {
   return format(parseISO(isoText), 'HH:mm')
 }
 
+function toDateInput(isoText: string): string {
+  return format(parseISO(isoText), 'yyyy-MM-dd')
+}
+
+function formatSchedulePeriod(schedule: Schedule): string {
+  const start = parseISO(schedule.startAt)
+  const end = parseISO(schedule.endAt)
+  if (isSameDay(start, end)) {
+    return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
+  }
+  return `${format(start, 'M/d HH:mm')} - ${format(end, 'M/d HH:mm')}`
+}
+
 export function SchedulePanel({
   selectedDate,
   daySchedules,
@@ -67,7 +84,9 @@ export function SchedulePanel({
   onCancelEdit,
 }: SchedulePanelProps) {
   const [title, setTitle] = useState('')
+  const [startDate, setStartDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
   const [startTime, setStartTime] = useState('09:00')
+  const [endDate, setEndDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
   const [endTime, setEndTime] = useState('10:00')
   const [memo, setMemo] = useState('')
   const [color, setColor] = useState<ScheduleColor>('sky')
@@ -76,7 +95,9 @@ export function SchedulePanel({
   useEffect(() => {
     if (editingSchedule) {
       setTitle(editingSchedule.title)
+      setStartDate(toDateInput(editingSchedule.startAt))
       setStartTime(toTimeInput(editingSchedule.startAt))
+      setEndDate(toDateInput(editingSchedule.endAt))
       setEndTime(toTimeInput(editingSchedule.endAt))
       setMemo(editingSchedule.memo)
       setColor(editingSchedule.color)
@@ -85,7 +106,9 @@ export function SchedulePanel({
     }
 
     setTitle('')
+    setStartDate(format(selectedDate, 'yyyy-MM-dd'))
     setStartTime('09:00')
+    setEndDate(format(selectedDate, 'yyyy-MM-dd'))
     setEndTime('10:00')
     setMemo('')
     setColor('sky')
@@ -94,20 +117,38 @@ export function SchedulePanel({
 
   const handleSubmit = async (): Promise<void> => {
     setFormError(null)
-    if (title.trim().length === 0) {
+    const normalizedTitle = title.trim()
+    const normalizedMemo = memo.trim()
+
+    if (normalizedTitle.length === 0) {
       setFormError('タイトルを入力してください。')
+      return
+    }
+    if (normalizedTitle.length > scheduleTitleMaxLength) {
+      setFormError(`タイトルは${scheduleTitleMaxLength}文字以内で入力してください。`)
+      return
+    }
+    if (normalizedMemo.length > scheduleMemoMaxLength) {
+      setFormError(`メモは${scheduleMemoMaxLength}文字以内で入力してください。`)
+      return
+    }
+
+    const startDay = parse(startDate, 'yyyy-MM-dd', selectedDate)
+    const endDay = parse(endDate, 'yyyy-MM-dd', selectedDate)
+    if (!isValid(startDay) || !isValid(endDay)) {
+      setFormError('開始日・終了日を正しく入力してください。')
       return
     }
 
     const startClock = parseTimeLabel(startTime)
     const endClock = parseTimeLabel(endTime)
-    const startAt = set(selectedDate, {
+    const startAt = set(startDay, {
       hours: startClock.hours,
       minutes: startClock.minutes,
       seconds: 0,
       milliseconds: 0,
     })
-    const endAt = set(selectedDate, {
+    const endAt = set(endDay, {
       hours: endClock.hours,
       minutes: endClock.minutes,
       seconds: 0,
@@ -121,10 +162,10 @@ export function SchedulePanel({
 
     await onSubmit({
       id: editingSchedule?.id,
-      title: title.trim(),
+      title: normalizedTitle,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
-      memo: memo.trim(),
+      memo: normalizedMemo,
       color,
     })
   }
@@ -145,14 +186,29 @@ export function SchedulePanel({
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
+            maxLength={scheduleTitleMaxLength}
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           />
+          <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
+            {title.length}/{scheduleTitleMaxLength}
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-              開始
+              開始日
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              開始時刻
             </label>
             <input
               type="time"
@@ -163,7 +219,18 @@ export function SchedulePanel({
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-              終了
+              終了日
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              終了時刻
             </label>
             <input
               type="time"
@@ -182,8 +249,13 @@ export function SchedulePanel({
             value={memo}
             onChange={(event) => setMemo(event.target.value)}
             rows={3}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            maxLength={scheduleMemoMaxLength}
+            wrap="soft"
+            className="w-full resize-y overflow-x-hidden rounded-md border border-slate-300 px-3 py-2 text-sm break-words [overflow-wrap:anywhere] outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           />
+          <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
+            {memo.length}/{scheduleMemoMaxLength}
+          </p>
         </div>
 
         <div>
@@ -241,7 +313,7 @@ export function SchedulePanel({
         </div>
       </div>
 
-      <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+      <div className="space-y-2 overflow-x-hidden lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
           その日の予定一覧
         </h3>
@@ -261,8 +333,7 @@ export function SchedulePanel({
                   {item.title}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {format(parseISO(item.startAt), 'HH:mm')} -{' '}
-                  {format(parseISO(item.endAt), 'HH:mm')}
+                  {formatSchedulePeriod(item)}
                 </p>
               </div>
               <span
@@ -272,7 +343,7 @@ export function SchedulePanel({
               />
             </div>
             {item.memo && (
-              <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+              <p className="mt-2 text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-slate-600 dark:text-slate-300">
                 {item.memo}
               </p>
             )}
