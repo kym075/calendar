@@ -1,4 +1,15 @@
-import { format, isBefore, isSameDay, isValid, parse, parseISO, set } from 'date-fns'
+import {
+  addDays,
+  format,
+  isBefore,
+  isSameDay,
+  isValid,
+  parse,
+  parseISO,
+  set,
+  startOfDay,
+  subDays,
+} from 'date-fns'
 import { useEffect, useState } from 'react'
 import type {
   Schedule,
@@ -45,6 +56,9 @@ interface SchedulePanelProps {
   onDelete: (id: ScheduleId) => Promise<void>
   onStartEdit: (id: ScheduleId) => void
   onCancelEdit: () => void
+  viewMode?: 'full' | 'list' | 'form'
+  onRequestClose?: () => void
+  className?: string
 }
 
 function parseTimeLabel(timeLabel: string): { hours: number; minutes: number } {
@@ -68,6 +82,13 @@ function toDateInput(isoText: string): string {
 function formatSchedulePeriod(schedule: Schedule): string {
   const start = parseISO(schedule.startAt)
   const end = parseISO(schedule.endAt)
+  if (schedule.allDay) {
+    const displayEnd = subDays(end, 1)
+    if (isSameDay(start, displayEnd)) {
+      return `${format(start, 'M/d')} 終日`
+    }
+    return `${format(start, 'M/d')} - ${format(displayEnd, 'M/d')} 終日`
+  }
   if (isSameDay(start, end)) {
     return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
   }
@@ -82,23 +103,37 @@ export function SchedulePanel({
   onDelete,
   onStartEdit,
   onCancelEdit,
+  viewMode = 'full',
+  onRequestClose,
+  className = '',
 }: SchedulePanelProps) {
+  const showForm = viewMode !== 'list'
+  const showList = viewMode !== 'form'
+  const showPrimaryAction = viewMode !== 'list'
+
   const [title, setTitle] = useState('')
   const [startDate, setStartDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
   const [startTime, setStartTime] = useState('09:00')
   const [endDate, setEndDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
   const [endTime, setEndTime] = useState('10:00')
+  const [allDay, setAllDay] = useState(false)
   const [memo, setMemo] = useState('')
   const [color, setColor] = useState<ScheduleColor>('sky')
   const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     if (editingSchedule) {
+      const end = parseISO(editingSchedule.endAt)
       setTitle(editingSchedule.title)
       setStartDate(toDateInput(editingSchedule.startAt))
-      setStartTime(toTimeInput(editingSchedule.startAt))
-      setEndDate(toDateInput(editingSchedule.endAt))
-      setEndTime(toTimeInput(editingSchedule.endAt))
+      setEndDate(
+        editingSchedule.allDay
+          ? format(subDays(end, 1), 'yyyy-MM-dd')
+          : toDateInput(editingSchedule.endAt),
+      )
+      setStartTime(editingSchedule.allDay ? '09:00' : toTimeInput(editingSchedule.startAt))
+      setEndTime(editingSchedule.allDay ? '10:00' : toTimeInput(editingSchedule.endAt))
+      setAllDay(editingSchedule.allDay)
       setMemo(editingSchedule.memo)
       setColor(editingSchedule.color)
       setFormError(null)
@@ -110,6 +145,7 @@ export function SchedulePanel({
     setStartTime('09:00')
     setEndDate(format(selectedDate, 'yyyy-MM-dd'))
     setEndTime('10:00')
+    setAllDay(false)
     setMemo('')
     setColor('sky')
     setFormError(null)
@@ -140,24 +176,35 @@ export function SchedulePanel({
       return
     }
 
-    const startClock = parseTimeLabel(startTime)
-    const endClock = parseTimeLabel(endTime)
-    const startAt = set(startDay, {
-      hours: startClock.hours,
-      minutes: startClock.minutes,
-      seconds: 0,
-      milliseconds: 0,
-    })
-    const endAt = set(endDay, {
-      hours: endClock.hours,
-      minutes: endClock.minutes,
-      seconds: 0,
-      milliseconds: 0,
-    })
+    let startAt: Date
+    let endAt: Date
+    if (allDay) {
+      startAt = startOfDay(startDay)
+      endAt = startOfDay(addDays(endDay, 1))
+      if (!isBefore(startAt, endAt)) {
+        setFormError('終了日は開始日以降にしてください。')
+        return
+      }
+    } else {
+      const startClock = parseTimeLabel(startTime)
+      const endClock = parseTimeLabel(endTime)
+      startAt = set(startDay, {
+        hours: startClock.hours,
+        minutes: startClock.minutes,
+        seconds: 0,
+        milliseconds: 0,
+      })
+      endAt = set(endDay, {
+        hours: endClock.hours,
+        minutes: endClock.minutes,
+        seconds: 0,
+        milliseconds: 0,
+      })
 
-    if (!isBefore(startAt, endAt)) {
-      setFormError('開始時刻は終了時刻より前にしてください。')
-      return
+      if (!isBefore(startAt, endAt)) {
+        setFormError('開始時刻は終了時刻より前にしてください。')
+        return
+      }
     }
 
     await onSubmit({
@@ -165,143 +212,55 @@ export function SchedulePanel({
       title: normalizedTitle,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
+      allDay,
       memo: normalizedMemo,
       color,
     })
   }
 
   return (
-    <section className="min-h-0 space-y-3 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 lg:flex lg:h-full lg:flex-col lg:space-y-3">
-      <header className="shrink-0">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-          {format(selectedDate, 'M月d日')} の予定
-        </h2>
-      </header>
-
-      <div className="shrink-0 space-y-3">
-        <div>
-          <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-            タイトル
-          </label>
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            maxLength={scheduleTitleMaxLength}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          />
-          <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
-            {title.length}/{scheduleTitleMaxLength}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-              開始日
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-              開始時刻
-            </label>
-            <input
-              type="time"
-              value={startTime}
-              onChange={(event) => setStartTime(event.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-              終了日
-            </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-              終了時刻
-            </label>
-            <input
-              type="time"
-              value={endTime}
-              onChange={(event) => setEndTime(event.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-            メモ
-          </label>
-          <textarea
-            value={memo}
-            onChange={(event) => setMemo(event.target.value)}
-            rows={3}
-            maxLength={scheduleMemoMaxLength}
-            wrap="soft"
-            className="w-full resize-y overflow-x-hidden rounded-md border border-slate-300 px-3 py-2 text-sm break-words [overflow-wrap:anywhere] outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          />
-          <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
-            {memo.length}/{scheduleMemoMaxLength}
-          </p>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-            カラー
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {colorOptions.map((option) => (
+    <section
+      className={[
+        'space-y-3 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90',
+        'lg:min-h-0 lg:h-full lg:overflow-y-auto lg:pr-2',
+        className,
+      ].join(' ')}
+    >
+      <header className="shrink-0 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
+            {format(selectedDate, 'M月d日')} の予定
+          </h2>
+          <div className="flex items-center gap-2">
+            {showPrimaryAction && (
               <button
-                key={option}
                 type="button"
-                className={[
-                  'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold text-white transition',
-                  colorClassMap[option],
-                  color === option
-                    ? 'scale-110 border-black/70 shadow-md dark:border-white'
-                    : 'border-transparent opacity-75 hover:opacity-100',
-                ].join(' ')}
-                onClick={() => setColor(option)}
-                aria-label={option}
-                aria-pressed={color === option}
+                className="shrink-0 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700 sm:px-3 sm:py-2 sm:text-sm"
+                onClick={() => void handleSubmit()}
               >
-                {color === option ? '✓' : ''}
+                {editingSchedule ? (
+                  '更新'
+                ) : (
+                  <>
+                    <span className="sm:hidden">追加</span>
+                    <span className="hidden sm:inline">予定を追加</span>
+                  </>
+                )}
               </button>
-            ))}
+            )}
+            {onRequestClose && (
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 sm:px-3 sm:py-2 sm:text-sm dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                onClick={onRequestClose}
+              >
+                閉じる
+              </button>
+            )}
           </div>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            選択中: <span className="font-semibold">{colorLabelMap[color]}</span>
-          </p>
         </div>
-
-        {formError && (
-          <p className="rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-600 dark:bg-rose-900/20 dark:text-rose-400">
-            {formError}
-          </p>
-        )}
-
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700"
-            onClick={() => void handleSubmit()}
-          >
-            {editingSchedule ? '更新' : '追加'}
-          </button>
-          {editingSchedule && (
+        {editingSchedule && showForm && (
+          <div className="flex justify-end">
             <button
               type="button"
               className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -309,63 +268,194 @@ export function SchedulePanel({
             >
               キャンセル
             </button>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2 overflow-x-hidden lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          その日の予定一覧
-        </h3>
-        {daySchedules.length === 0 && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            予定はまだありません。
-          </p>
+          </div>
         )}
-        {daySchedules.map((item) => (
-          <article
-            key={item.id}
-            className="rounded-md border border-slate-200 p-3 dark:border-slate-700"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                  {item.title}
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {formatSchedulePeriod(item)}
-                </p>
-              </div>
-              <span
-                className={['mt-1 h-3 w-3 rounded-full', colorClassMap[item.color]].join(
-                  ' ',
-                )}
+      </header>
+
+      {showForm && (
+        <div className="shrink-0 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              タイトル
+            </label>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              maxLength={scheduleTitleMaxLength}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            />
+            <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
+              {title.length}/{scheduleTitleMaxLength}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                開始日
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
             </div>
-            {item.memo && (
-              <p className="mt-2 text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-slate-600 dark:text-slate-300">
-                {item.memo}
-              </p>
-            )}
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                onClick={() => onStartEdit(item.id)}
-              >
-                編集
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/50 dark:text-rose-400 dark:hover:bg-rose-900/30"
-                onClick={() => void onDelete(item.id)}
-              >
-                削除
-              </button>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                開始時刻
+              </label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(event) => setStartTime(event.target.value)}
+                disabled={allDay}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
+              />
             </div>
-          </article>
-        ))}
-      </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                終了日
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                終了時刻
+              </label>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(event) => setEndTime(event.target.value)}
+                disabled={allDay}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={allDay}
+              onChange={(event) => setAllDay(event.target.checked)}
+              className="h-4 w-4 accent-sky-600"
+            />
+            終日予定
+          </label>
+
+          <div>
+            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              メモ
+            </label>
+            <textarea
+              value={memo}
+              onChange={(event) => setMemo(event.target.value)}
+              rows={3}
+              maxLength={scheduleMemoMaxLength}
+              wrap="soft"
+              className="w-full resize-y overflow-x-hidden rounded-md border border-slate-300 px-3 py-2 text-sm break-words [overflow-wrap:anywhere] outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            />
+            <p className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
+              {memo.length}/{scheduleMemoMaxLength}
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              カラー
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {colorOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={[
+                    'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold text-white transition',
+                    colorClassMap[option],
+                    color === option
+                      ? 'scale-110 border-black/70 shadow-md dark:border-white'
+                      : 'border-transparent opacity-75 hover:opacity-100',
+                  ].join(' ')}
+                  onClick={() => setColor(option)}
+                  aria-label={option}
+                  aria-pressed={color === option}
+                >
+                  {color === option ? '✓' : ''}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              選択中: <span className="font-semibold">{colorLabelMap[color]}</span>
+            </p>
+          </div>
+
+          {formError && (
+            <p className="rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-600 dark:bg-rose-900/20 dark:text-rose-400">
+              {formError}
+            </p>
+          )}
+        </div>
+      )}
+
+      {showList && (
+        <div className="space-y-2 overflow-x-hidden">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            その日の予定一覧
+          </h3>
+          {daySchedules.length === 0 && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              予定はまだありません。
+            </p>
+          )}
+          {daySchedules.map((item) => (
+            <article
+              key={item.id}
+              className="rounded-md border border-slate-200 p-3 dark:border-slate-700"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {item.title}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatSchedulePeriod(item)}
+                  </p>
+                </div>
+                <span
+                  className={['mt-1 h-3 w-3 rounded-full', colorClassMap[item.color]].join(
+                    ' ',
+                  )}
+                />
+              </div>
+              {item.memo && (
+                <p className="mt-2 text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-slate-600 dark:text-slate-300">
+                  {item.memo}
+                </p>
+              )}
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  onClick={() => onStartEdit(item.id)}
+                >
+                  編集
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/50 dark:text-rose-400 dark:hover:bg-rose-900/30"
+                  onClick={() => void onDelete(item.id)}
+                >
+                  削除
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   )
 }

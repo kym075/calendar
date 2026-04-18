@@ -16,6 +16,7 @@ export interface ScheduleBase {
   title: string
   startAt: string
   endAt: string
+  allDay: boolean
   memo: string
   color: ScheduleColor
 }

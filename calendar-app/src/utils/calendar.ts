@@ -28,28 +28,51 @@ export function createMonthGrid(viewMonth: Date): Date[] {
   return dates
 }
 
+interface ScheduleDisplayRange {
+  startDay: Date
+  endDay: Date
+  isMultiDay: boolean
+}
+
+export function getScheduleDisplayRange(
+  schedule: Schedule,
+): ScheduleDisplayRange | null {
+  const startAt = parseISO(schedule.startAt)
+  const endAt = parseISO(schedule.endAt)
+  if (!isValid(startAt) || !isValid(endAt)) {
+    return null
+  }
+
+  const midnightEnd =
+    endAt.getHours() === 0 &&
+    endAt.getMinutes() === 0 &&
+    endAt.getSeconds() === 0 &&
+    endAt.getMilliseconds() === 0
+
+  const displayEnd = midnightEnd ? subMilliseconds(endAt, 1) : endAt
+  const rangeEnd = displayEnd.getTime() < startAt.getTime() ? startAt : displayEnd
+  const startDay = startOfDay(startAt)
+  const endDay = startOfDay(rangeEnd)
+
+  return {
+    startDay,
+    endDay,
+    isMultiDay: startDay.getTime() !== endDay.getTime(),
+  }
+}
+
 export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> {
   const map: Record<string, Schedule[]> = {}
 
   for (const schedule of items) {
-    const startAt = parseISO(schedule.startAt)
-    const endAt = parseISO(schedule.endAt)
-    if (!isValid(startAt) || !isValid(endAt)) {
+    const displayRange = getScheduleDisplayRange(schedule)
+    if (!displayRange) {
       continue
     }
 
-    const midnightEnd =
-      endAt.getHours() === 0 &&
-      endAt.getMinutes() === 0 &&
-      endAt.getSeconds() === 0 &&
-      endAt.getMilliseconds() === 0
-
-    const displayEnd = midnightEnd ? subMilliseconds(endAt, 1) : endAt
-    const rangeEnd = displayEnd.getTime() < startAt.getTime() ? startAt : displayEnd
-
     const days = eachDayOfInterval({
-      start: startOfDay(startAt),
-      end: startOfDay(rangeEnd),
+      start: displayRange.startDay,
+      end: displayRange.endDay,
     })
 
     for (const day of days) {

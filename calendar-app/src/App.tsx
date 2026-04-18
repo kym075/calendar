@@ -6,12 +6,15 @@ import { useScheduleStore } from './stores/useScheduleStore'
 import { buildScheduleMap } from './utils/calendar'
 import type { ScheduleInput } from '../shared/types/schedule'
 
+type MobilePanelMode = 'none' | 'list' | 'form'
+
 function parseDateKey(value: string): Date {
   return parse(value, 'yyyy-MM-dd', new Date())
 }
 
 function App() {
   const [viewMonth, setViewMonth] = useState<Date>(startOfMonth(new Date()))
+  const [mobilePanelMode, setMobilePanelMode] = useState<MobilePanelMode>('none')
 
   const {
     schedules,
@@ -45,6 +48,9 @@ function App() {
   const handleSubmit = async (input: ScheduleInput): Promise<void> => {
     await saveSchedule(input)
     setEditingId(null)
+    if (mobilePanelMode === 'form') {
+      setMobilePanelMode('list')
+    }
   }
 
   const handleDelete = async (id: string): Promise<void> => {
@@ -54,14 +60,50 @@ function App() {
     }
   }
 
+  const handleSelectDate = (date: Date): void => {
+    setSelectedDate(date)
+    setViewMonth(startOfMonth(date))
+    setEditingId(null)
+  }
+
+  const openMobileList = (date: Date): void => {
+    handleSelectDate(date)
+    setMobilePanelMode('list')
+  }
+
+  const openMobileCreate = (): void => {
+    setEditingId(null)
+    setMobilePanelMode('form')
+  }
+
+  const closeMobilePanel = (): void => {
+    setMobilePanelMode('none')
+    setEditingId(null)
+  }
+
+  const openMobileEdit = (id: string): void => {
+    setEditingId(id)
+    setMobilePanelMode('form')
+  }
+
+  const cancelMobileEdit = (): void => {
+    setEditingId(null)
+    setMobilePanelMode('list')
+  }
+
   return (
     <main className="box-border h-screen overflow-hidden text-slate-800 dark:text-slate-100">
       <div className="mx-auto flex h-full max-w-7xl flex-col gap-3 p-3 md:p-4">
-        <header className="rounded-2xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
-          <h1 className="text-xl font-bold">Calendar Learning App</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Electron + React + TypeScript + Tailwind + Zustand + date-fns
-          </p>
+        <header className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
+          <h1 className="text-lg font-bold sm:text-xl">Calendar Learning App</h1>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-sky-600 text-xl font-semibold text-white hover:bg-sky-700 lg:hidden"
+            aria-label="予定を追加"
+            onClick={openMobileCreate}
+          >
+            +
+          </button>
         </header>
 
         {error && (
@@ -77,17 +119,24 @@ function App() {
           </div>
         )}
 
-        <section className="min-h-0 flex-1 overflow-hidden grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <section className="min-h-0 flex-1 lg:hidden">
           <CalendarView
             viewMonth={viewMonth}
             selectedDate={selectedDate}
             schedulesByDate={schedulesByDate}
             onChangeMonth={setViewMonth}
-            onSelectDate={(date) => {
-              setSelectedDate(date)
-              setViewMonth(startOfMonth(date))
-              setEditingId(null)
-            }}
+            onSelectDate={handleSelectDate}
+            onDateDoubleTap={openMobileList}
+          />
+        </section>
+
+        <section className="hidden min-h-0 flex-1 overflow-hidden lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-3">
+          <CalendarView
+            viewMonth={viewMonth}
+            selectedDate={selectedDate}
+            schedulesByDate={schedulesByDate}
+            onChangeMonth={setViewMonth}
+            onSelectDate={handleSelectDate}
           />
 
           <SchedulePanel
@@ -102,11 +151,28 @@ function App() {
         </section>
 
         {loading && (
-          <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
+          <p className="hidden shrink-0 text-xs text-slate-500 dark:text-slate-400 lg:block">
             データ同期中...
           </p>
         )}
       </div>
+
+      {mobilePanelMode !== 'none' && (
+        <div className="fixed inset-0 z-50 bg-slate-950/45 p-2 backdrop-blur-[1px] lg:hidden">
+          <SchedulePanel
+            className="h-full overflow-y-auto"
+            selectedDate={selectedDate}
+            daySchedules={daySchedules}
+            editingSchedule={editingSchedule}
+            onSubmit={handleSubmit}
+            onDelete={handleDelete}
+            onStartEdit={openMobileEdit}
+            onCancelEdit={cancelMobileEdit}
+            viewMode={mobilePanelMode}
+            onRequestClose={closeMobilePanel}
+          />
+        </div>
+      )}
     </main>
   )
 }

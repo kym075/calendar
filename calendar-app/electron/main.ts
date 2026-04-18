@@ -45,22 +45,36 @@ function isScheduleColor(value: unknown): value is ScheduleColor {
   return typeof value === 'string' && colorSet.has(value as ScheduleColor)
 }
 
-function isSchedule(value: unknown): value is Schedule {
+function toSchedule(value: unknown): Schedule | null {
   if (typeof value !== 'object' || value === null) {
-    return false
+    return null
   }
 
   const record = value as Record<string, unknown>
-  return (
-    typeof record.id === 'string' &&
-    typeof record.title === 'string' &&
-    typeof record.startAt === 'string' &&
-    typeof record.endAt === 'string' &&
-    typeof record.memo === 'string' &&
-    isScheduleColor(record.color) &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string'
-  )
+  if (
+    typeof record.id !== 'string' ||
+    typeof record.title !== 'string' ||
+    typeof record.startAt !== 'string' ||
+    typeof record.endAt !== 'string' ||
+    typeof record.memo !== 'string' ||
+    !isScheduleColor(record.color) ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.updatedAt !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: record.id,
+    title: record.title,
+    startAt: record.startAt,
+    endAt: record.endAt,
+    allDay: typeof record.allDay === 'boolean' ? record.allDay : false,
+    memo: record.memo,
+    color: record.color,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
 }
 
 function sortSchedules(items: Schedule[]): Schedule[] {
@@ -81,7 +95,15 @@ async function loadSchedulesFromDisk(): Promise<Schedule[]> {
     if (!Array.isArray(parsed)) {
       return []
     }
-    return sortSchedules(parsed.filter(isSchedule))
+
+    const normalized: Schedule[] = []
+    for (const item of parsed) {
+      const schedule = toSchedule(item)
+      if (schedule) {
+        normalized.push(schedule)
+      }
+    }
+    return sortSchedules(normalized)
   } catch {
     return []
   }
@@ -96,6 +118,9 @@ function validateScheduleInput(input: ScheduleInput): void {
   const normalizedTitle = input.title.trim()
   const normalizedMemo = input.memo.trim()
 
+  if (typeof input.allDay !== 'boolean') {
+    throw new Error('終日フラグが不正です。')
+  }
   if (normalizedTitle.length === 0) {
     throw new Error('タイトルは必須です。')
   }
@@ -165,6 +190,7 @@ async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
     title: input.title.trim(),
     startAt: input.startAt,
     endAt: input.endAt,
+    allDay: input.allDay,
     memo: input.memo.trim(),
     color: input.color,
   }
@@ -231,6 +257,7 @@ function createWindow(): InstanceType<typeof BrowserWindow> {
   win.once('ready-to-show', () => {
     win.show()
   })
+  win.setMenuBarVisibility(false)
 
   win.on('close', (event) => {
     if (!appQuitting) {
@@ -313,6 +340,7 @@ app.whenReady().then(async () => {
   schedules = await loadSchedulesFromDisk()
   scheduleUpcomingNotifications()
 
+  Menu.setApplicationMenu(null)
   registerIpcHandlers()
   mainWindow = createWindow()
   createTray()
