@@ -15,6 +15,7 @@ import {
   type ScheduleId,
   type ScheduleInput,
 } from '../shared/types/schedule'
+import { sortSchedules } from '../shared/utils/schedule'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -76,14 +77,6 @@ function toSchedule(value: unknown): Schedule | null {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   }
-}
-
-function sortSchedules(items: Schedule[]): Schedule[] {
-  return [...items].sort(
-    (a, b) =>
-      new Date(a.startAt).getTime() - new Date(b.startAt).getTime() ||
-      a.title.localeCompare(b.title, 'ja'),
-  )
 }
 
 async function loadSchedulesFromDisk(): Promise<Schedule[]> {

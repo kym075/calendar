@@ -1,14 +1,7 @@
 import { format } from 'date-fns'
 import { create } from 'zustand'
 import type { Schedule, ScheduleId, ScheduleInput } from '../../shared/types/schedule'
-
-function sortSchedules(items: Schedule[]): Schedule[] {
-  return [...items].sort(
-    (a, b) =>
-      new Date(a.startAt).getTime() - new Date(b.startAt).getTime() ||
-      a.title.localeCompare(b.title, 'ja'),
-  )
-}
+import { sortSchedules } from '../../shared/utils/schedule'
 
 interface ScheduleState {
   schedules: Schedule[]
