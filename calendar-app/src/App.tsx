@@ -44,6 +44,7 @@ function App() {
     () => schedules.find((item) => item.id === editingId) ?? null,
     [schedules, editingId],
   )
+  const schedulePanelKey = `${selectedDateKey}:${editingId ?? 'new'}`
 
   const handleSubmit = async (input: ScheduleInput): Promise<void> => {
     await saveSchedule(input)
@@ -140,6 +141,7 @@ function App() {
           />
 
           <SchedulePanel
+            key={`desktop:${schedulePanelKey}`}
             selectedDate={selectedDate}
             daySchedules={daySchedules}
             editingSchedule={editingSchedule}
@@ -160,6 +162,7 @@ function App() {
       {mobilePanelMode !== 'none' && (
         <div className="fixed inset-0 z-50 bg-slate-950/45 p-2 backdrop-blur-[1px] lg:hidden">
           <SchedulePanel
+            key={`mobile:${schedulePanelKey}:${mobilePanelMode}`}
             className="h-full overflow-y-auto"
             selectedDate={selectedDate}
             daySchedules={daySchedules}

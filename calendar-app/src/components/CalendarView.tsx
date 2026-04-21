@@ -77,20 +77,19 @@ export function CalendarView({
   const rowCount = Math.ceil(days.length / 7)
   const isDenseMonth = rowCount >= 6
 
-  const handleDateTap = (date: Date, key: string): void => {
+  const handleDateTap = (date: Date, key: string, tapTimeMs: number): void => {
     onSelectDate(date)
     if (!onDateDoubleTap) {
       return
     }
 
-    const now = Date.now()
     const prev = lastTapRef.current
-    if (prev && prev.key === key && now - prev.time <= 320) {
+    if (prev && prev.key === key && tapTimeMs - prev.time <= 320) {
       onDateDoubleTap(date)
       lastTapRef.current = null
       return
     }
-    lastTapRef.current = { key, time: now }
+    lastTapRef.current = { key, time: tapTimeMs }
   }
 
   return (
@@ -181,7 +180,7 @@ export function CalendarView({
                   : 'text-slate-400 dark:text-slate-600',
                 selected ? 'ring-2 ring-sky-500 ring-inset' : '',
               ].join(' ')}
-              onClick={() => handleDateTap(date, key)}
+              onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
               <span
                 className={[

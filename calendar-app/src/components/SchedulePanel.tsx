@@ -10,7 +10,7 @@ import {
   startOfDay,
   subDays,
 } from 'date-fns'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type {
   Schedule,
   ScheduleColor,
@@ -95,6 +95,49 @@ function formatSchedulePeriod(schedule: Schedule): string {
   return `${format(start, 'M/d HH:mm')} - ${format(end, 'M/d HH:mm')}`
 }
 
+interface FormInitialValues {
+  title: string
+  startDate: string
+  startTime: string
+  endDate: string
+  endTime: string
+  allDay: boolean
+  memo: string
+  color: ScheduleColor
+}
+
+function createFormInitialValues(
+  selectedDate: Date,
+  editingSchedule: Schedule | null,
+): FormInitialValues {
+  if (!editingSchedule) {
+    return {
+      title: '',
+      startDate: format(selectedDate, 'yyyy-MM-dd'),
+      startTime: '09:00',
+      endDate: format(selectedDate, 'yyyy-MM-dd'),
+      endTime: '10:00',
+      allDay: false,
+      memo: '',
+      color: 'sky',
+    }
+  }
+
+  const end = parseISO(editingSchedule.endAt)
+  return {
+    title: editingSchedule.title,
+    startDate: toDateInput(editingSchedule.startAt),
+    startTime: editingSchedule.allDay ? '09:00' : toTimeInput(editingSchedule.startAt),
+    endDate: editingSchedule.allDay
+      ? format(subDays(end, 1), 'yyyy-MM-dd')
+      : toDateInput(editingSchedule.endAt),
+    endTime: editingSchedule.allDay ? '10:00' : toTimeInput(editingSchedule.endAt),
+    allDay: editingSchedule.allDay,
+    memo: editingSchedule.memo,
+    color: editingSchedule.color,
+  }
+}
+
 export function SchedulePanel({
   selectedDate,
   daySchedules,
@@ -111,45 +154,16 @@ export function SchedulePanel({
   const showList = viewMode !== 'form'
   const showPrimaryAction = viewMode !== 'list'
 
-  const [title, setTitle] = useState('')
-  const [startDate, setStartDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
-  const [startTime, setStartTime] = useState('09:00')
-  const [endDate, setEndDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
-  const [endTime, setEndTime] = useState('10:00')
-  const [allDay, setAllDay] = useState(false)
-  const [memo, setMemo] = useState('')
-  const [color, setColor] = useState<ScheduleColor>('sky')
+  const initialFormValues = createFormInitialValues(selectedDate, editingSchedule)
+  const [title, setTitle] = useState(initialFormValues.title)
+  const [startDate, setStartDate] = useState(initialFormValues.startDate)
+  const [startTime, setStartTime] = useState(initialFormValues.startTime)
+  const [endDate, setEndDate] = useState(initialFormValues.endDate)
+  const [endTime, setEndTime] = useState(initialFormValues.endTime)
+  const [allDay, setAllDay] = useState(initialFormValues.allDay)
+  const [memo, setMemo] = useState(initialFormValues.memo)
+  const [color, setColor] = useState<ScheduleColor>(initialFormValues.color)
   const [formError, setFormError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (editingSchedule) {
-      const end = parseISO(editingSchedule.endAt)
-      setTitle(editingSchedule.title)
-      setStartDate(toDateInput(editingSchedule.startAt))
-      setEndDate(
-        editingSchedule.allDay
-          ? format(subDays(end, 1), 'yyyy-MM-dd')
-          : toDateInput(editingSchedule.endAt),
-      )
-      setStartTime(editingSchedule.allDay ? '09:00' : toTimeInput(editingSchedule.startAt))
-      setEndTime(editingSchedule.allDay ? '10:00' : toTimeInput(editingSchedule.endAt))
-      setAllDay(editingSchedule.allDay)
-      setMemo(editingSchedule.memo)
-      setColor(editingSchedule.color)
-      setFormError(null)
-      return
-    }
-
-    setTitle('')
-    setStartDate(format(selectedDate, 'yyyy-MM-dd'))
-    setStartTime('09:00')
-    setEndDate(format(selectedDate, 'yyyy-MM-dd'))
-    setEndTime('10:00')
-    setAllDay(false)
-    setMemo('')
-    setColor('sky')
-    setFormError(null)
-  }, [editingSchedule, selectedDate])
 
   const handleSubmit = async (): Promise<void> => {
     setFormError(null)
