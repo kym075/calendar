@@ -18,6 +18,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIVE_MINUTES_MS = 5 * 60 * 1000
+const MAX_SET_TIMEOUT_MS = 2_147_483_647
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } =
   electron
 
@@ -151,9 +152,55 @@ function clearNotificationTimers(): void {
   notificationTimers.clear()
 }
 
+function showNotification(schedule: Schedule): void {
+  if (!Notification.isSupported()) {
+    return
+  }
+
+  const start = parseISO(schedule.startAt)
+  if (!isValid(start)) {
+    return
+  }
+
+  const startLabel = format(start, 'HH:mm')
+  new Notification({
+    title: '予定の5分前です',
+    body: `${schedule.title} (${startLabel}開始)`,
+  }).show()
+}
+
+function armNotificationTimer(schedule: Schedule, notifyAtMs: number): void {
+  const remainingMs = notifyAtMs - Date.now()
+  if (remainingMs <= 0) {
+    showNotification(schedule)
+    notificationTimers.delete(schedule.id)
+    return
+  }
+
+  // setTimeout は約24.8日を超える待機時間を扱えないため分割して待機する。
+  const nextDelay = Math.min(remainingMs, MAX_SET_TIMEOUT_MS)
+  const timeout = setTimeout(() => {
+    const latest = schedules.find((item) => item.id === schedule.id)
+    if (!latest) {
+      notificationTimers.delete(schedule.id)
+      return
+    }
+
+    const latestStart = parseISO(latest.startAt)
+    if (!isValid(latestStart)) {
+      notificationTimers.delete(schedule.id)
+      return
+    }
+
+    const latestNotifyAtMs = latestStart.getTime() - FIVE_MINUTES_MS
+    armNotificationTimer(latest, latestNotifyAtMs)
+  }, nextDelay)
+
+  notificationTimers.set(schedule.id, timeout)
+}
+
 function scheduleUpcomingNotifications(): void {
   clearNotificationTimers()
-  const now = Date.now()
 
   for (const schedule of schedules) {
     const start = parseISO(schedule.startAt)
@@ -161,24 +208,11 @@ function scheduleUpcomingNotifications(): void {
       continue
     }
 
-    const notifyAt = start.getTime() - FIVE_MINUTES_MS
-    const delay = notifyAt - now
-    if (delay <= 0) {
+    const notifyAtMs = start.getTime() - FIVE_MINUTES_MS
+    if (notifyAtMs <= Date.now()) {
       continue
     }
-
-    const timeout = setTimeout(() => {
-      if (Notification.isSupported()) {
-        const startLabel = format(start, 'HH:mm')
-        new Notification({
-          title: '予定の5分前です',
-          body: `${schedule.title} (${startLabel}開始)`,
-        }).show()
-      }
-      notificationTimers.delete(schedule.id)
-    }, delay)
-
-    notificationTimers.set(schedule.id, timeout)
+    armNotificationTimer(schedule, notifyAtMs)
   }
 }
 
