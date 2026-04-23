@@ -6,7 +6,10 @@ import {
   getScheduleDisplayRange,
   toDateKey,
 } from '../utils/calendar'
-import type { Schedule, ScheduleColor } from '../../shared/types/schedule'
+import type {
+  ScheduleColor,
+  ScheduleOccurrence,
+} from '../../shared/types/schedule'
 
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
 const badgeClassMap: Record<ScheduleColor, string> = {
@@ -37,13 +40,13 @@ const rangeBarClassMap: Record<ScheduleColor, string> = {
 interface CalendarViewProps {
   viewMonth: Date
   selectedDate: Date
-  schedulesByDate: Record<string, Schedule[]>
+  schedulesByDate: Record<string, ScheduleOccurrence[]>
   onChangeMonth: (nextMonth: Date) => void
   onSelectDate: (date: Date) => void
   onDateDoubleTap?: (date: Date) => void
 }
 
-function getDominantColor(schedules: Schedule[]): ScheduleColor {
+function getDominantColor(schedules: ScheduleOccurrence[]): ScheduleColor {
   const countMap = new Map<ScheduleColor, number>()
 
   for (const item of schedules) {

@@ -1,6 +1,7 @@
 import {
   addDays,
   eachDayOfInterval,
+  endOfDay,
   endOfMonth,
   endOfWeek,
   format,
@@ -11,7 +12,8 @@ import {
   startOfWeek,
   subMilliseconds,
 } from 'date-fns'
-import type { Schedule } from '../../shared/types/schedule'
+import type { Schedule, ScheduleOccurrence } from '../../shared/types/schedule'
+import { getScheduleOccurrencesForRange } from '../../shared/utils/schedule'
 
 export function toDateKey(date: Date): string {
   return format(date, 'yyyy-MM-dd')
@@ -35,7 +37,7 @@ interface ScheduleDisplayRange {
 }
 
 export function getScheduleDisplayRange(
-  schedule: Schedule,
+  schedule: Pick<ScheduleOccurrence, 'startAt' | 'endAt'>,
 ): ScheduleDisplayRange | null {
   const startAt = parseISO(schedule.startAt)
   const endAt = parseISO(schedule.endAt)
@@ -61,11 +63,20 @@ export function getScheduleDisplayRange(
   }
 }
 
-export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> {
-  const map: Record<string, Schedule[]> = {}
+export function buildScheduleMap(
+  items: Schedule[],
+  rangeStart: Date,
+  rangeEnd: Date,
+): Record<string, ScheduleOccurrence[]> {
+  const map: Record<string, ScheduleOccurrence[]> = {}
+  const occurrences = getScheduleOccurrencesForRange(
+    items,
+    startOfDay(rangeStart),
+    endOfDay(rangeEnd),
+  )
 
-  for (const schedule of items) {
-    const displayRange = getScheduleDisplayRange(schedule)
+  for (const occurrence of occurrences) {
+    const displayRange = getScheduleDisplayRange(occurrence)
     if (!displayRange) {
       continue
     }
@@ -80,7 +91,7 @@ export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> 
       if (!map[key]) {
         map[key] = []
       }
-      map[key].push(schedule)
+      map[key].push(occurrence)
     }
   }
 
@@ -91,4 +102,11 @@ export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> 
   }
 
   return map
+}
+
+export function buildDayScheduleList(
+  items: Schedule[],
+  day: Date,
+): ScheduleOccurrence[] {
+  return getScheduleOccurrencesForRange(items, startOfDay(day), endOfDay(day))
 }

@@ -4,18 +4,28 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { format, isValid, parseISO } from 'date-fns'
+import { format, isBefore, isValid, parse, parseISO, startOfDay } from 'date-fns'
 import { ipcChannels } from '../shared/types/ipc'
 import {
+  defaultScheduleRecurrence,
+  isRecurrenceEndMode,
+  isRecurrenceFrequency,
+  recurrenceCountMax,
+  recurrenceCountMin,
   scheduleColors,
   scheduleMemoMaxLength,
   scheduleTitleMaxLength,
+  type ScheduleRecurrence,
   type Schedule,
   type ScheduleColor,
   type ScheduleId,
+  type ScheduleOccurrence,
   type ScheduleInput,
 } from '../shared/types/schedule'
-import { sortSchedules } from '../shared/utils/schedule'
+import {
+  findNextOccurrenceStartingAfter,
+  sortSchedules,
+} from '../shared/utils/schedule'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -47,6 +57,108 @@ function isScheduleColor(value: unknown): value is ScheduleColor {
   return typeof value === 'string' && colorSet.has(value as ScheduleColor)
 }
 
+function parseDateInput(value: string): Date | null {
+  const parsed = parse(value, 'yyyy-MM-dd', new Date())
+  return isValid(parsed) ? startOfDay(parsed) : null
+}
+
+function normalizeRecurrenceInput(value: unknown): ScheduleRecurrence {
+  if (typeof value !== 'object' || value === null) {
+    return defaultScheduleRecurrence
+  }
+
+  const record = value as Record<string, unknown>
+  if (!isRecurrenceFrequency(record.frequency)) {
+    return defaultScheduleRecurrence
+  }
+  if (record.frequency === 'none') {
+    return defaultScheduleRecurrence
+  }
+
+  const endMode = isRecurrenceEndMode(record.endMode) ? record.endMode : 'never'
+  const untilDate = typeof record.untilDate === 'string' ? record.untilDate : null
+  const count = Number.isInteger(record.count) ? Number(record.count) : null
+
+  if (endMode === 'onDate') {
+    return {
+      frequency: record.frequency,
+      endMode,
+      untilDate,
+      count: null,
+    }
+  }
+
+  if (endMode === 'afterCount') {
+    return {
+      frequency: record.frequency,
+      endMode,
+      untilDate: null,
+      count,
+    }
+  }
+
+  return {
+    frequency: record.frequency,
+    endMode: 'never',
+    untilDate: null,
+    count: null,
+  }
+}
+
+function validateRecurrenceInput(
+  recurrence: ScheduleRecurrence,
+  startAt: Date,
+): ScheduleRecurrence {
+  if (recurrence.frequency === 'none') {
+    return defaultScheduleRecurrence
+  }
+
+  if (recurrence.endMode === 'onDate') {
+    if (!recurrence.untilDate) {
+      throw new Error('繰り返しの終了日を入力してください。')
+    }
+    const untilDay = parseDateInput(recurrence.untilDate)
+    if (!untilDay) {
+      throw new Error('繰り返しの終了日が不正です。')
+    }
+    if (isBefore(untilDay, startOfDay(startAt))) {
+      throw new Error('繰り返しの終了日は開始日以降にしてください。')
+    }
+    return {
+      frequency: recurrence.frequency,
+      endMode: 'onDate',
+      untilDate: recurrence.untilDate,
+      count: null,
+    }
+  }
+
+  if (recurrence.endMode === 'afterCount') {
+    if (
+      recurrence.count === null ||
+      !Number.isInteger(recurrence.count) ||
+      recurrence.count < recurrenceCountMin ||
+      recurrence.count > recurrenceCountMax
+    ) {
+      throw new Error(
+        `繰り返し回数は${recurrenceCountMin}〜${recurrenceCountMax}で入力してください。`,
+      )
+    }
+    return {
+      frequency: recurrence.frequency,
+      endMode: 'afterCount',
+      untilDate: null,
+      count: recurrence.count,
+    }
+  }
+
+  return {
+    frequency: recurrence.frequency,
+    endMode: 'never',
+    untilDate: null,
+    count: null,
+  }
+}
+
 function toSchedule(value: unknown): Schedule | null {
   if (typeof value !== 'object' || value === null) {
     return null
@@ -66,6 +178,19 @@ function toSchedule(value: unknown): Schedule | null {
     return null
   }
 
+  const parsedStartAt = parseISO(record.startAt)
+  const normalizedRecurrence = normalizeRecurrenceInput(record.recurrence)
+  const recurrence =
+    isValid(parsedStartAt)
+      ? (() => {
+          try {
+            return validateRecurrenceInput(normalizedRecurrence, parsedStartAt)
+          } catch {
+            return defaultScheduleRecurrence
+          }
+        })()
+      : defaultScheduleRecurrence
+
   return {
     id: record.id,
     title: record.title,
@@ -74,6 +199,7 @@ function toSchedule(value: unknown): Schedule | null {
     allDay: typeof record.allDay === 'boolean' ? record.allDay : false,
     memo: record.memo,
     color: record.color,
+    recurrence,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   }
@@ -108,7 +234,7 @@ async function saveSchedulesToDisk(items: Schedule[]): Promise<void> {
   await writeFile(filePath, JSON.stringify(sortSchedules(items), null, 2), 'utf-8')
 }
 
-function validateScheduleInput(input: ScheduleInput): void {
+function validateScheduleInput(input: ScheduleInput): ScheduleRecurrence {
   const normalizedTitle = input.title.trim()
   const normalizedMemo = input.memo.trim()
 
@@ -136,6 +262,9 @@ function validateScheduleInput(input: ScheduleInput): void {
   if (start.getTime() >= end.getTime()) {
     throw new Error('開始時刻は終了時刻より前にしてください。')
   }
+
+  const recurrenceInput = normalizeRecurrenceInput(input.recurrence)
+  return validateRecurrenceInput(recurrenceInput, start)
 }
 
 function clearNotificationTimers(): void {
@@ -145,12 +274,12 @@ function clearNotificationTimers(): void {
   notificationTimers.clear()
 }
 
-function showNotification(schedule: Schedule): void {
+function showNotification(occurrence: Pick<ScheduleOccurrence, 'title' | 'startAt'>): void {
   if (!Notification.isSupported()) {
     return
   }
 
-  const start = parseISO(schedule.startAt)
+  const start = parseISO(occurrence.startAt)
   if (!isValid(start)) {
     return
   }
@@ -158,59 +287,77 @@ function showNotification(schedule: Schedule): void {
   const startLabel = format(start, 'HH:mm')
   new Notification({
     title: '予定の5分前です',
-    body: `${schedule.title} (${startLabel}開始)`,
+    body: `${occurrence.title} (${startLabel}開始)`,
   }).show()
 }
 
-function armNotificationTimer(schedule: Schedule, notifyAtMs: number): void {
+function scheduleNextNotificationForSchedule(scheduleId: ScheduleId): void {
+  const latest = schedules.find((item) => item.id === scheduleId)
+  if (!latest) {
+    notificationTimers.delete(scheduleId)
+    return
+  }
+
+  const threshold = new Date(Date.now() + FIVE_MINUTES_MS)
+  const nextOccurrence = findNextOccurrenceStartingAfter(latest, threshold)
+  if (!nextOccurrence) {
+    notificationTimers.delete(scheduleId)
+    return
+  }
+
+  const nextStart = parseISO(nextOccurrence.startAt)
+  if (!isValid(nextStart)) {
+    notificationTimers.delete(scheduleId)
+    return
+  }
+
+  armNotificationTimer(nextOccurrence, nextStart.getTime() - FIVE_MINUTES_MS)
+}
+
+function armNotificationTimer(
+  occurrence: ScheduleOccurrence,
+  notifyAtMs: number,
+): void {
   const remainingMs = notifyAtMs - Date.now()
   if (remainingMs <= 0) {
-    showNotification(schedule)
-    notificationTimers.delete(schedule.id)
+    showNotification(occurrence)
+    scheduleNextNotificationForSchedule(occurrence.scheduleId)
     return
   }
 
   // setTimeout は約24.8日を超える待機時間を扱えないため分割して待機する。
   const nextDelay = Math.min(remainingMs, MAX_SET_TIMEOUT_MS)
   const timeout = setTimeout(() => {
-    const latest = schedules.find((item) => item.id === schedule.id)
-    if (!latest) {
-      notificationTimers.delete(schedule.id)
+    if (nextDelay < remainingMs) {
+      armNotificationTimer(occurrence, notifyAtMs)
       return
     }
-
-    const latestStart = parseISO(latest.startAt)
-    if (!isValid(latestStart)) {
-      notificationTimers.delete(schedule.id)
-      return
-    }
-
-    const latestNotifyAtMs = latestStart.getTime() - FIVE_MINUTES_MS
-    armNotificationTimer(latest, latestNotifyAtMs)
+    showNotification(occurrence)
+    scheduleNextNotificationForSchedule(occurrence.scheduleId)
   }, nextDelay)
 
-  notificationTimers.set(schedule.id, timeout)
+  notificationTimers.set(occurrence.scheduleId, timeout)
 }
 
 function scheduleUpcomingNotifications(): void {
   clearNotificationTimers()
+  const threshold = new Date(Date.now() + FIVE_MINUTES_MS)
 
   for (const schedule of schedules) {
-    const start = parseISO(schedule.startAt)
+    const nextOccurrence = findNextOccurrenceStartingAfter(schedule, threshold)
+    if (!nextOccurrence) {
+      continue
+    }
+    const start = parseISO(nextOccurrence.startAt)
     if (!isValid(start)) {
       continue
     }
-
-    const notifyAtMs = start.getTime() - FIVE_MINUTES_MS
-    if (notifyAtMs <= Date.now()) {
-      continue
-    }
-    armNotificationTimer(schedule, notifyAtMs)
+    armNotificationTimer(nextOccurrence, start.getTime() - FIVE_MINUTES_MS)
   }
 }
 
 async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
-  validateScheduleInput(input)
+  const recurrence = validateScheduleInput(input)
   const nowIso = new Date().toISOString()
 
   const nextItem = {
@@ -220,6 +367,7 @@ async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
     allDay: input.allDay,
     memo: input.memo.trim(),
     color: input.color,
+    recurrence,
   }
 
   if (input.id) {

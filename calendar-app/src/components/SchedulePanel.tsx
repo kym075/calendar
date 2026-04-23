@@ -12,12 +12,18 @@ import {
 } from 'date-fns'
 import { useState } from 'react'
 import type {
+  RecurrenceEndMode,
+  RecurrenceFrequency,
   Schedule,
   ScheduleColor,
   ScheduleId,
   ScheduleInput,
+  ScheduleOccurrence,
 } from '../../shared/types/schedule'
 import {
+  defaultScheduleRecurrence,
+  recurrenceCountMax,
+  recurrenceCountMin,
   scheduleMemoMaxLength,
   scheduleTitleMaxLength,
 } from '../../shared/types/schedule'
@@ -38,6 +44,12 @@ const colorLabelMap: Record<ScheduleColor, string> = {
   rose: 'ローズ',
   violet: 'バイオレット',
 }
+const recurrenceFrequencyLabelMap: Record<RecurrenceFrequency, string> = {
+  none: '繰り返さない',
+  daily: '毎日',
+  weekly: '毎週',
+  monthly: '毎月',
+}
 
 const colorOptions: ScheduleColor[] = [
   'slate',
@@ -50,7 +62,7 @@ const colorOptions: ScheduleColor[] = [
 
 interface SchedulePanelProps {
   selectedDate: Date
-  daySchedules: Schedule[]
+  daySchedules: ScheduleOccurrence[]
   editingSchedule: Schedule | null
   onSubmit: (input: ScheduleInput) => Promise<void>
   onDelete: (id: ScheduleId) => Promise<void>
@@ -79,7 +91,7 @@ function toDateInput(isoText: string): string {
   return format(parseISO(isoText), 'yyyy-MM-dd')
 }
 
-function formatSchedulePeriod(schedule: Schedule): string {
+function formatSchedulePeriod(schedule: ScheduleOccurrence): string {
   const start = parseISO(schedule.startAt)
   const end = parseISO(schedule.endAt)
   if (schedule.allDay) {
@@ -95,6 +107,21 @@ function formatSchedulePeriod(schedule: Schedule): string {
   return `${format(start, 'M/d HH:mm')} - ${format(end, 'M/d HH:mm')}`
 }
 
+function formatRecurrenceLabel(schedule: ScheduleOccurrence): string {
+  const recurrence = schedule.recurrence
+  if (recurrence.frequency === 'none') {
+    return '単発'
+  }
+  const frequencyLabel = recurrenceFrequencyLabelMap[recurrence.frequency]
+  if (recurrence.endMode === 'onDate' && recurrence.untilDate) {
+    return `${frequencyLabel} (${recurrence.untilDate}まで)`
+  }
+  if (recurrence.endMode === 'afterCount' && recurrence.count !== null) {
+    return `${frequencyLabel} (${recurrence.count}回)`
+  }
+  return `${frequencyLabel} (無期限)`
+}
+
 interface FormInitialValues {
   title: string
   startDate: string
@@ -104,6 +131,10 @@ interface FormInitialValues {
   allDay: boolean
   memo: string
   color: ScheduleColor
+  recurrenceFrequency: RecurrenceFrequency
+  recurrenceEndMode: RecurrenceEndMode
+  recurrenceUntilDate: string
+  recurrenceCount: string
 }
 
 function createFormInitialValues(
@@ -120,10 +151,15 @@ function createFormInitialValues(
       allDay: false,
       memo: '',
       color: 'sky',
+      recurrenceFrequency: 'none',
+      recurrenceEndMode: 'never',
+      recurrenceUntilDate: format(selectedDate, 'yyyy-MM-dd'),
+      recurrenceCount: '10',
     }
   }
 
   const end = parseISO(editingSchedule.endAt)
+  const recurrence = editingSchedule.recurrence ?? defaultScheduleRecurrence
   return {
     title: editingSchedule.title,
     startDate: toDateInput(editingSchedule.startAt),
@@ -135,6 +171,11 @@ function createFormInitialValues(
     allDay: editingSchedule.allDay,
     memo: editingSchedule.memo,
     color: editingSchedule.color,
+    recurrenceFrequency: recurrence.frequency,
+    recurrenceEndMode: recurrence.endMode,
+    recurrenceUntilDate: recurrence.untilDate ?? toDateInput(editingSchedule.startAt),
+    recurrenceCount:
+      recurrence.count !== null ? String(recurrence.count) : '10',
   }
 }
 
@@ -163,7 +204,26 @@ export function SchedulePanel({
   const [allDay, setAllDay] = useState(initialFormValues.allDay)
   const [memo, setMemo] = useState(initialFormValues.memo)
   const [color, setColor] = useState<ScheduleColor>(initialFormValues.color)
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>(
+    initialFormValues.recurrenceFrequency,
+  )
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<RecurrenceEndMode>(
+    initialFormValues.recurrenceEndMode,
+  )
+  const [recurrenceUntilDate, setRecurrenceUntilDate] = useState(
+    initialFormValues.recurrenceUntilDate,
+  )
+  const [recurrenceCount, setRecurrenceCount] = useState(
+    initialFormValues.recurrenceCount,
+  )
   const [formError, setFormError] = useState<string | null>(null)
+
+  const handleStartDateChange = (nextStartDate: string): void => {
+    setStartDate(nextStartDate)
+    if (recurrenceEndMode === 'onDate' && recurrenceUntilDate < nextStartDate) {
+      setRecurrenceUntilDate(nextStartDate)
+    }
+  }
 
   const handleSubmit = async (): Promise<void> => {
     setFormError(null)
@@ -221,6 +281,52 @@ export function SchedulePanel({
       }
     }
 
+    let recurrence = defaultScheduleRecurrence
+    if (recurrenceFrequency !== 'none') {
+      if (recurrenceEndMode === 'onDate') {
+        const untilDay = parse(recurrenceUntilDate, 'yyyy-MM-dd', selectedDate)
+        if (!isValid(untilDay)) {
+          setFormError('繰り返しの終了日を正しく入力してください。')
+          return
+        }
+        if (isBefore(startOfDay(untilDay), startOfDay(startAt))) {
+          setFormError('繰り返しの終了日は開始日以降にしてください。')
+          return
+        }
+        recurrence = {
+          frequency: recurrenceFrequency,
+          endMode: 'onDate',
+          untilDate: recurrenceUntilDate,
+          count: null,
+        }
+      } else if (recurrenceEndMode === 'afterCount') {
+        const count = Number.parseInt(recurrenceCount, 10)
+        if (
+          !Number.isInteger(count) ||
+          count < recurrenceCountMin ||
+          count > recurrenceCountMax
+        ) {
+          setFormError(
+            `繰り返し回数は${recurrenceCountMin}〜${recurrenceCountMax}で入力してください。`,
+          )
+          return
+        }
+        recurrence = {
+          frequency: recurrenceFrequency,
+          endMode: 'afterCount',
+          untilDate: null,
+          count,
+        }
+      } else {
+        recurrence = {
+          frequency: recurrenceFrequency,
+          endMode: 'never',
+          untilDate: null,
+          count: null,
+        }
+      }
+    }
+
     await onSubmit({
       id: editingSchedule?.id,
       title: normalizedTitle,
@@ -229,6 +335,7 @@ export function SchedulePanel({
       allDay,
       memo: normalizedMemo,
       color,
+      recurrence,
     })
   }
 
@@ -311,7 +418,7 @@ export function SchedulePanel({
               <input
                 type="date"
                 value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
+                onChange={(event) => handleStartDateChange(event.target.value)}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
             </div>
@@ -360,6 +467,77 @@ export function SchedulePanel({
             />
             終日予定
           </label>
+
+          <div className="space-y-2 rounded-md border border-slate-300 px-3 py-2 dark:border-slate-700">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                繰り返し
+              </label>
+              <select
+                value={recurrenceFrequency}
+                onChange={(event) =>
+                  setRecurrenceFrequency(event.target.value as RecurrenceFrequency)
+                }
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="none">繰り返さない</option>
+                <option value="daily">毎日</option>
+                <option value="weekly">毎週</option>
+                <option value="monthly">毎月</option>
+              </select>
+            </div>
+
+            {recurrenceFrequency !== 'none' && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                    終了条件
+                  </label>
+                  <select
+                    value={recurrenceEndMode}
+                    onChange={(event) =>
+                      setRecurrenceEndMode(event.target.value as RecurrenceEndMode)
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="never">なし（無期限）</option>
+                    <option value="onDate">終了日を指定</option>
+                    <option value="afterCount">回数を指定</option>
+                  </select>
+                </div>
+
+                {recurrenceEndMode === 'onDate' && (
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                      終了日
+                    </label>
+                    <input
+                      type="date"
+                      value={recurrenceUntilDate}
+                      onChange={(event) => setRecurrenceUntilDate(event.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                )}
+
+                {recurrenceEndMode === 'afterCount' && (
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                      回数
+                    </label>
+                    <input
+                      type="number"
+                      min={recurrenceCountMin}
+                      max={recurrenceCountMax}
+                      value={recurrenceCount}
+                      onChange={(event) => setRecurrenceCount(event.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div>
             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
@@ -438,6 +616,9 @@ export function SchedulePanel({
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {formatSchedulePeriod(item)}
                   </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatRecurrenceLabel(item)}
+                  </p>
                 </div>
                 <span
                   className={['mt-1 h-3 w-3 rounded-full', colorClassMap[item.color]].join(
@@ -454,14 +635,14 @@ export function SchedulePanel({
                 <button
                   type="button"
                   className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  onClick={() => onStartEdit(item.id)}
+                  onClick={() => onStartEdit(item.scheduleId)}
                 >
                   編集
                 </button>
                 <button
                   type="button"
                   className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/50 dark:text-rose-400 dark:hover:bg-rose-900/30"
-                  onClick={() => void onDelete(item.id)}
+                  onClick={() => void onDelete(item.scheduleId)}
                 >
                   削除
                 </button>

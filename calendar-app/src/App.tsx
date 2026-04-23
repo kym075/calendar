@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CalendarView } from './components/CalendarView'
 import { SchedulePanel } from './components/SchedulePanel'
 import { useScheduleStore } from './stores/useScheduleStore'
-import { buildScheduleMap } from './utils/calendar'
+import { buildDayScheduleList, buildScheduleMap, createMonthGrid } from './utils/calendar'
 import type { ScheduleInput } from '../shared/types/schedule'
 
 type MobilePanelMode = 'none' | 'list' | 'form'
@@ -38,8 +38,17 @@ function App() {
     () => parseDateKey(selectedDateKey),
     [selectedDateKey],
   )
-  const schedulesByDate = useMemo(() => buildScheduleMap(schedules), [schedules])
-  const daySchedules = schedulesByDate[selectedDateKey] ?? []
+  const monthGrid = useMemo(() => createMonthGrid(viewMonth), [viewMonth])
+  const mapRangeStart = monthGrid[0] ?? selectedDate
+  const mapRangeEnd = monthGrid[monthGrid.length - 1] ?? selectedDate
+  const schedulesByDate = useMemo(
+    () => buildScheduleMap(schedules, mapRangeStart, mapRangeEnd),
+    [schedules, mapRangeStart, mapRangeEnd],
+  )
+  const daySchedules = useMemo(
+    () => buildDayScheduleList(schedules, selectedDate),
+    [schedules, selectedDate],
+  )
   const editingSchedule = useMemo(
     () => schedules.find((item) => item.id === editingId) ?? null,
     [schedules, editingId],
