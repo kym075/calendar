@@ -13,26 +13,26 @@ import type {
 
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
 const badgeClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-600 text-white',
+  yellow: 'bg-yellow-300 text-slate-900',
   sky: 'bg-sky-500 text-white',
   emerald: 'bg-emerald-500 text-white',
-  amber: 'bg-amber-400 text-slate-900',
+  amber: 'bg-orange-500 text-white',
   rose: 'bg-rose-500 text-white',
   violet: 'bg-violet-500 text-white',
 }
 const dotClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500',
+  yellow: 'bg-yellow-300',
   sky: 'bg-sky-500',
   emerald: 'bg-emerald-500',
-  amber: 'bg-amber-400',
+  amber: 'bg-orange-500',
   rose: 'bg-rose-500',
   violet: 'bg-violet-500',
 }
 const rangeBarClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500/80',
+  yellow: 'bg-yellow-300/80',
   sky: 'bg-sky-500/80',
   emerald: 'bg-emerald-500/80',
-  amber: 'bg-amber-400/80',
+  amber: 'bg-orange-500/80',
   rose: 'bg-rose-500/80',
   violet: 'bg-violet-500/80',
 }

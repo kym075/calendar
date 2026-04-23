@@ -30,15 +30,15 @@ import {
 } from '../../shared/types/schedule'
 
 const colorClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500',
+  yellow: 'bg-yellow-300',
   sky: 'bg-sky-500',
   emerald: 'bg-emerald-500',
-  amber: 'bg-amber-500',
+  amber: 'bg-orange-500',
   rose: 'bg-rose-500',
   violet: 'bg-violet-500',
 }
 const colorLabelMap: Record<ScheduleColor, string> = {
-  slate: 'スレート',
+  yellow: 'イエロー',
   sky: 'スカイ',
   emerald: 'エメラルド',
   amber: 'アンバー',
@@ -53,7 +53,7 @@ const recurrenceFrequencyLabelMap: Record<RecurrenceFrequency, string> = {
 }
 
 const colorOptions: ScheduleColor[] = [
-  'slate',
+  'yellow',
   'sky',
   'emerald',
   'amber',
@@ -709,7 +709,8 @@ export function SchedulePanel({
                   key={option}
                   type="button"
                   className={[
-                    'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold text-white transition',
+                    'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold transition',
+                    option === 'yellow' ? 'text-slate-900' : 'text-white',
                     colorClassMap[option],
                     color === option
                       ? 'scale-110 border-black/70 shadow-md dark:border-white'

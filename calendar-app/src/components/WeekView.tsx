@@ -15,10 +15,10 @@ import { toDateKey } from '../utils/calendar'
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
 
 const dotClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500',
+  yellow: 'bg-yellow-300',
   sky: 'bg-sky-500',
   emerald: 'bg-emerald-500',
-  amber: 'bg-amber-400',
+  amber: 'bg-orange-500',
   rose: 'bg-rose-500',
   violet: 'bg-violet-500',
 }

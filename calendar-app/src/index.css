@@ -16,26 +16,159 @@
 body {
   margin: 0;
   min-height: 100vh;
+  transition: background-color 180ms ease, background-image 180ms ease;
+}
+
+body.theme-classic,
+body:not(.theme-white) {
   background:
-    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 40%),
-    radial-gradient(circle at 80% 0%, rgba(251, 191, 36, 0.18), transparent 35%),
-    #e2e8f0;
+    radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.22), transparent 40%),
+    radial-gradient(circle at 85% 0%, rgba(14, 165, 233, 0.18), transparent 35%),
+    #020617;
+}
+
+body.theme-white {
+  background: #f7f9fc;
+
+  --panel-bg: #ffffff;
+  --panel-border: #d9e2ef;
+  --surface-bg: #ffffff;
+  --surface-hover: #eef2f7;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+  --field-bg: #ffffff;
+  --field-border: #cdd8e6;
+  --field-disabled-bg: #f1f5f9;
+  --field-disabled-text: #94a3b8;
+  --button-bg: #f8fafc;
+  --button-border: #cdd8e6;
+  --button-text: #334155;
+  --panel-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
 }
 
 #root {
   min-height: 100vh;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #e2e8f0;
-    background-color: #020617;
-  }
+body.theme-white .app-root {
+  color: var(--text-primary);
+}
 
-  body {
-    background:
-      radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.22), transparent 40%),
-      radial-gradient(circle at 85% 0%, rgba(14, 165, 233, 0.18), transparent 35%),
-      #020617;
-  }
+body.theme-white .app-root [class*="rounded-2xl"][class*="border"] {
+  background-color: var(--panel-bg) !important;
+  border-color: var(--panel-border) !important;
+  box-shadow: var(--panel-shadow) !important;
+  backdrop-filter: none !important;
+}
+
+body.theme-white .app-root
+  :is(section, article, div)[class*="rounded-md"][class*="border"]:not([class*="border-amber"]):not([class*="border-rose"]) {
+  border-color: var(--panel-border) !important;
+}
+
+body.theme-white .app-root [class*="text-slate-800"],
+body.theme-white .app-root [class*="text-slate-700"],
+body.theme-white .app-root [class*="dark:text-slate-100"],
+body.theme-white .app-root [class*="dark:text-slate-200"] {
+  color: var(--text-primary) !important;
+}
+
+body.theme-white .app-root [class*="text-slate-600"],
+body.theme-white .app-root [class*="dark:text-slate-300"] {
+  color: var(--text-secondary) !important;
+}
+
+body.theme-white .app-root [class*="text-slate-500"],
+body.theme-white .app-root [class*="dark:text-slate-400"],
+body.theme-white .app-root [class*="dark:text-slate-500"] {
+  color: var(--text-muted) !important;
+}
+
+body.theme-white .app-root [class*="text-slate-400"],
+body.theme-white .app-root [class*="dark:text-slate-600"] {
+  color: var(--text-subtle) !important;
+}
+
+body.theme-white .app-root [class*="border-slate-200"],
+body.theme-white .app-root [class*="border-slate-300"],
+body.theme-white .app-root [class*="dark:border-slate-700"] {
+  border-color: var(--panel-border) !important;
+}
+
+body.theme-white .app-root [class*="dark:border-white"] {
+  border-color: #0f172a !important;
+}
+
+body.theme-white .app-root [class*="bg-white"],
+body.theme-white .app-root [class*="bg-slate-50"],
+body.theme-white .app-root [class*="bg-slate-100"],
+body.theme-white .app-root [class*="dark:bg-slate-900"],
+body.theme-white .app-root [class*="dark:bg-slate-800"],
+body.theme-white .app-root [class*="dark:bg-slate-700"] {
+  background-color: var(--surface-bg) !important;
+}
+
+body.theme-white .app-root [class*="bg-slate-200"] {
+  background-color: var(--panel-border) !important;
+}
+
+body.theme-white .app-root [class*="hover:bg-slate-50"]:hover,
+body.theme-white .app-root [class*="hover:bg-slate-100"]:hover,
+body.theme-white .app-root [class*="dark:hover:bg-slate-800"]:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+body.theme-white .app-root button[class*="border-slate-"],
+body.theme-white .app-root button[class*="dark:border-slate-"] {
+  background-color: var(--button-bg);
+  border-color: var(--button-border) !important;
+  color: var(--button-text) !important;
+}
+
+body.theme-white .app-root button[class*="border-slate-"]:hover,
+body.theme-white .app-root button[class*="dark:border-slate-"]:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+body.theme-white
+  .app-root
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background-color: var(--field-bg) !important;
+  border-color: var(--field-border) !important;
+  color: var(--text-primary) !important;
+}
+
+body.theme-white
+  .app-root
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):disabled {
+  background-color: var(--field-disabled-bg) !important;
+  color: var(--field-disabled-text) !important;
+  border-color: var(--field-border) !important;
+}
+
+body.theme-white .app-root [class*="dark:border-rose-500"] {
+  border-color: #fda4af !important;
+}
+
+body.theme-white .app-root [class*="dark:bg-rose-900"] {
+  background-color: #fff1f2 !important;
+}
+
+body.theme-white .app-root [class*="dark:text-rose-300"],
+body.theme-white .app-root [class*="dark:text-rose-400"] {
+  color: #be123c !important;
+}
+
+body.theme-white .app-root [class*="dark:border-amber-500"] {
+  border-color: #fcd34d !important;
+}
+
+body.theme-white .app-root [class*="dark:bg-amber-900"] {
+  background-color: #fffbeb !important;
+}
+
+body.theme-white .app-root [class*="dark:text-amber-300"] {
+  color: #92400e !important;
 }

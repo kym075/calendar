@@ -13,7 +13,11 @@ import {
   createMonthGrid,
   createWeekGrid,
 } from './utils/calendar'
-import type { ScheduleInput } from '../shared/types/schedule'
+import {
+  scheduleColors,
+  type ScheduleColor,
+  type ScheduleInput,
+} from '../shared/types/schedule'
 import type { AppSettingsInput, CalendarViewMode } from '../shared/types/settings'
 
 type MobilePanelMode = 'none' | 'list' | 'form'
@@ -22,6 +26,14 @@ const viewModeLabelMap: Record<CalendarViewMode, string> = {
   month: '月',
   week: '週',
   year: '年',
+}
+const colorSampleLabelMap: Record<ScheduleColor, string> = {
+  yellow: '🟨 イエロー',
+  sky: '🟦 スカイ',
+  emerald: '🟩 エメラルド',
+  amber: '🟧 アンバー',
+  rose: '🟥 ローズ',
+  violet: '🟪 バイオレット',
 }
 
 function parseDateKey(value: string): Date {
@@ -34,6 +46,9 @@ function App() {
     useState<CalendarViewMode | null>(null)
   const [mobilePanelMode, setMobilePanelMode] = useState<MobilePanelMode>('none')
   const [showSettings, setShowSettings] = useState(false)
+  const [titleFilter, setTitleFilter] = useState('')
+  const [memoFilter, setMemoFilter] = useState('')
+  const [colorFilter, setColorFilter] = useState<ScheduleColor | 'all'>('all')
 
   const {
     schedules,
@@ -55,6 +70,48 @@ function App() {
   useEffect(() => {
     void Promise.all([loadSchedules(), loadSettings()])
   }, [loadSchedules, loadSettings])
+
+  useEffect(() => {
+    const themeClassNames = ['theme-classic', 'theme-white']
+    const nextThemeClass = `theme-${settings.colorTheme}`
+    document.body.classList.remove(...themeClassNames)
+    document.body.classList.add(nextThemeClass)
+
+    if (settings.colorTheme === 'white') {
+      document.documentElement.style.colorScheme = 'light'
+    } else {
+      document.documentElement.style.colorScheme = 'dark'
+    }
+  }, [settings.colorTheme])
+
+  const normalizedTitleFilter = titleFilter.trim().toLowerCase()
+  const normalizedMemoFilter = memoFilter.trim().toLowerCase()
+  const filteredSchedules = useMemo(
+    () =>
+      schedules.filter((item) => {
+        if (colorFilter !== 'all' && item.color !== colorFilter) {
+          return false
+        }
+        if (
+          normalizedTitleFilter.length > 0 &&
+          !item.title.toLowerCase().includes(normalizedTitleFilter)
+        ) {
+          return false
+        }
+        if (
+          normalizedMemoFilter.length > 0 &&
+          !item.memo.toLowerCase().includes(normalizedMemoFilter)
+        ) {
+          return false
+        }
+        return true
+      }),
+    [colorFilter, normalizedMemoFilter, normalizedTitleFilter, schedules],
+  )
+  const hasActiveFilter =
+    normalizedTitleFilter.length > 0 ||
+    normalizedMemoFilter.length > 0 ||
+    colorFilter !== 'all'
   const viewMode = viewModeOverride ?? settings.preferredViewMode
 
   const selectedDate = useMemo(
@@ -66,26 +123,26 @@ function App() {
   const monthRangeStart = monthGrid[0] ?? selectedDate
   const monthRangeEnd = monthGrid[monthGrid.length - 1] ?? selectedDate
   const monthSchedulesByDate = useMemo(
-    () => buildScheduleMap(schedules, monthRangeStart, monthRangeEnd),
-    [schedules, monthRangeStart, monthRangeEnd],
+    () => buildScheduleMap(filteredSchedules, monthRangeStart, monthRangeEnd),
+    [filteredSchedules, monthRangeStart, monthRangeEnd],
   )
 
   const weekGrid = useMemo(() => createWeekGrid(startOfWeek(viewDate)), [viewDate])
   const weekRangeStart = weekGrid[0] ?? selectedDate
   const weekRangeEnd = weekGrid[weekGrid.length - 1] ?? selectedDate
   const weekSchedulesByDate = useMemo(
-    () => buildScheduleMap(schedules, weekRangeStart, weekRangeEnd),
-    [schedules, weekRangeStart, weekRangeEnd],
+    () => buildScheduleMap(filteredSchedules, weekRangeStart, weekRangeEnd),
+    [filteredSchedules, weekRangeStart, weekRangeEnd],
   )
 
   const yearMonthCounts = useMemo(
-    () => buildYearMonthCountMap(schedules, startOfYear(viewDate)),
-    [schedules, viewDate],
+    () => buildYearMonthCountMap(filteredSchedules, startOfYear(viewDate)),
+    [filteredSchedules, viewDate],
   )
 
   const daySchedules = useMemo(
-    () => buildDayScheduleList(schedules, selectedDate),
-    [schedules, selectedDate],
+    () => buildDayScheduleList(filteredSchedules, selectedDate),
+    [filteredSchedules, selectedDate],
   )
   const editingSchedule = useMemo(
     () => schedules.find((item) => item.id === editingId) ?? null,
@@ -190,7 +247,7 @@ function App() {
   }
 
   return (
-    <main className="box-border h-screen overflow-hidden text-slate-800 dark:text-slate-100">
+    <main className="app-root box-border h-screen overflow-hidden text-slate-800 dark:text-slate-100">
       <div className="mx-auto flex h-full max-w-7xl flex-col gap-3 p-3 md:p-4">
         <header className="space-y-2 rounded-2xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
           <div className="flex items-center justify-between gap-2">
@@ -230,6 +287,67 @@ function App() {
                 {viewModeLabelMap[mode]}
               </button>
             ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                タイトル検索
+              </label>
+              <input
+                value={titleFilter}
+                onChange={(event) => setTitleFilter(event.target.value)}
+                placeholder="例: 会議"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                メモ検索
+              </label>
+              <input
+                value={memoFilter}
+                onChange={(event) => setMemoFilter(event.target.value)}
+                placeholder="例: 準備物"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                カテゴリ色
+              </label>
+              <select
+                value={colorFilter}
+                onChange={(event) =>
+                  setColorFilter(event.target.value as ScheduleColor | 'all')
+                }
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="all">すべて</option>
+                {scheduleColors.map((color) => (
+                  <option key={color} value={color}>
+                    {colorSampleLabelMap[color]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-end justify-between gap-2 lg:flex-col lg:items-stretch">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                表示: {filteredSchedules.length}/{schedules.length}件
+              </p>
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setTitleFilter('')
+                  setMemoFilter('')
+                  setColorFilter('all')
+                }}
+                disabled={!hasActiveFilter}
+              >
+                フィルタ解除
+              </button>
+            </div>
           </div>
         </header>
 

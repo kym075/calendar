@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { format, isBefore, isValid, parse, parseISO, startOfDay } from 'date-fns'
 import { ipcChannels } from '../shared/types/ipc'
 import {
+  isColorTheme,
   defaultAppSettings,
   isCalendarViewMode,
   isNotificationLeadMinutes,
@@ -78,6 +79,14 @@ function isScheduleColor(value: unknown): value is ScheduleColor {
   return typeof value === 'string' && colorSet.has(value as ScheduleColor)
 }
 
+function normalizeScheduleColor(value: unknown): ScheduleColor | null {
+  // Backward compatibility: previously saved "slate" is mapped to yellow.
+  if (value === 'slate') {
+    return 'yellow'
+  }
+  return isScheduleColor(value) ? value : null
+}
+
 function normalizeSettingsRecord(value: unknown): AppSettings {
   if (typeof value !== 'object' || value === null) {
     return defaultAppSettings
@@ -91,12 +100,16 @@ function normalizeSettingsRecord(value: unknown): AppSettings {
     preferredViewMode: isCalendarViewMode(record.preferredViewMode)
       ? record.preferredViewMode
       : defaultAppSettings.preferredViewMode,
+    colorTheme: isColorTheme(record.colorTheme)
+      ? record.colorTheme
+      : defaultAppSettings.colorTheme,
   }
 }
 
 function mergeSettings(input: AppSettingsInput): AppSettings {
   const nextLeadMinutes = input.notificationLeadMinutes
   const nextViewMode = input.preferredViewMode
+  const nextColorTheme = input.colorTheme
 
   if (
     nextLeadMinutes !== undefined &&
@@ -107,11 +120,15 @@ function mergeSettings(input: AppSettingsInput): AppSettings {
   if (nextViewMode !== undefined && !isCalendarViewMode(nextViewMode)) {
     throw new Error('表示モードの設定が不正です。')
   }
+  if (nextColorTheme !== undefined && !isColorTheme(nextColorTheme)) {
+    throw new Error('テーマの設定が不正です。')
+  }
 
   return {
     notificationLeadMinutes:
       nextLeadMinutes ?? appSettings.notificationLeadMinutes,
     preferredViewMode: nextViewMode ?? appSettings.preferredViewMode,
+    colorTheme: nextColorTheme ?? appSettings.colorTheme,
   }
 }
 
@@ -237,13 +254,14 @@ function toSchedule(value: unknown): Schedule | null {
   }
 
   const record = value as Record<string, unknown>
+  const normalizedColor = normalizeScheduleColor(record.color)
   if (
     typeof record.id !== 'string' ||
     typeof record.title !== 'string' ||
     typeof record.startAt !== 'string' ||
     typeof record.endAt !== 'string' ||
     typeof record.memo !== 'string' ||
-    !isScheduleColor(record.color) ||
+    !normalizedColor ||
     typeof record.createdAt !== 'string' ||
     typeof record.updatedAt !== 'string'
   ) {
@@ -270,7 +288,7 @@ function toSchedule(value: unknown): Schedule | null {
     endAt: record.endAt,
     allDay: typeof record.allDay === 'boolean' ? record.allDay : false,
     memo: record.memo,
-    color: record.color,
+    color: normalizedColor,
     recurrence,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -324,9 +342,13 @@ async function saveSettingsToDisk(settings: AppSettings): Promise<void> {
   await writeFile(filePath, JSON.stringify(settings, null, 2), 'utf-8')
 }
 
-function validateScheduleInput(input: ScheduleInput): ScheduleRecurrence {
+function validateScheduleInput(input: ScheduleInput): {
+  recurrence: ScheduleRecurrence
+  color: ScheduleColor
+} {
   const normalizedTitle = input.title.trim()
   const normalizedMemo = input.memo.trim()
+  const normalizedColor = normalizeScheduleColor(input.color)
 
   if (typeof input.allDay !== 'boolean') {
     throw new Error('終日フラグが不正です。')
@@ -340,7 +362,7 @@ function validateScheduleInput(input: ScheduleInput): ScheduleRecurrence {
   if (normalizedMemo.length > scheduleMemoMaxLength) {
     throw new Error(`メモは${scheduleMemoMaxLength}文字以内で入力してください。`)
   }
-  if (!isScheduleColor(input.color)) {
+  if (!normalizedColor) {
     throw new Error('カテゴリーカラーが不正です。')
   }
 
@@ -354,7 +376,10 @@ function validateScheduleInput(input: ScheduleInput): ScheduleRecurrence {
   }
 
   const recurrenceInput = normalizeRecurrenceInput(input.recurrence)
-  return validateRecurrenceInput(recurrenceInput, start)
+  return {
+    recurrence: validateRecurrenceInput(recurrenceInput, start),
+    color: normalizedColor,
+  }
 }
 
 function clearNotificationTimers(): void {
@@ -449,7 +474,7 @@ function scheduleUpcomingNotifications(): void {
 }
 
 async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
-  const recurrence = validateScheduleInput(input)
+  const { recurrence, color } = validateScheduleInput(input)
   const nowIso = new Date().toISOString()
 
   const nextItem = {
@@ -458,7 +483,7 @@ async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
     endAt: input.endAt,
     allDay: input.allDay,
     memo: input.memo.trim(),
-    color: input.color,
+    color,
     recurrence,
   }
 

@@ -1,5 +1,5 @@
 export const scheduleColors = [
-  'slate',
+  'yellow',
   'sky',
   'emerald',
   'amber',
