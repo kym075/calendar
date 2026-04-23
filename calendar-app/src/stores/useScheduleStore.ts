@@ -1,17 +1,25 @@
 import { format } from 'date-fns'
 import { create } from 'zustand'
 import type { Schedule, ScheduleId, ScheduleInput } from '../../shared/types/schedule'
+import {
+  defaultAppSettings,
+  type AppSettings,
+  type AppSettingsInput,
+} from '../../shared/types/settings'
 import { sortSchedules } from '../../shared/utils/schedule'
 
 interface ScheduleState {
   schedules: Schedule[]
+  settings: AppSettings
   selectedDateKey: string
   editingId: ScheduleId | null
   loading: boolean
   error: string | null
   loadSchedules: () => Promise<void>
+  loadSettings: () => Promise<void>
   saveSchedule: (input: ScheduleInput) => Promise<void>
   deleteSchedule: (id: ScheduleId) => Promise<void>
+  saveSettings: (input: AppSettingsInput) => Promise<void>
   setSelectedDate: (date: Date) => void
   setEditingId: (id: ScheduleId | null) => void
   clearError: () => void
@@ -19,6 +27,7 @@ interface ScheduleState {
 
 export const useScheduleStore = create<ScheduleState>((set) => ({
   schedules: [],
+  settings: defaultAppSettings,
   selectedDateKey: format(new Date(), 'yyyy-MM-dd'),
   editingId: null,
   loading: false,
@@ -34,6 +43,18 @@ export const useScheduleStore = create<ScheduleState>((set) => ({
         error instanceof Error
           ? error.message
           : '予定の読み込みに失敗しました。'
+      set({ loading: false, error: message })
+    }
+  },
+
+  loadSettings: async () => {
+    set({ loading: true, error: null })
+    try {
+      const settings = await window.api.getSettings()
+      set({ settings, loading: false })
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : '設定の読み込みに失敗しました。'
       set({ loading: false, error: message })
     }
   },
@@ -58,6 +79,18 @@ export const useScheduleStore = create<ScheduleState>((set) => ({
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : '予定の削除に失敗しました。'
+      set({ loading: false, error: message })
+    }
+  },
+
+  saveSettings: async (input: AppSettingsInput) => {
+    set({ loading: true, error: null })
+    try {
+      const settings = await window.api.updateSettings(input)
+      set({ settings, loading: false })
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : '設定の保存に失敗しました。'
       set({ loading: false, error: message })
     }
   },

@@ -10,7 +10,7 @@ import {
   startOfDay,
   subDays,
 } from 'date-fns'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type {
   RecurrenceEndMode,
   RecurrenceFrequency,
@@ -19,6 +19,7 @@ import type {
   ScheduleId,
   ScheduleInput,
   ScheduleOccurrence,
+  ScheduleRecurrence,
 } from '../../shared/types/schedule'
 import {
   defaultScheduleRecurrence,
@@ -179,6 +180,156 @@ function createFormInitialValues(
   }
 }
 
+function buildRecurrenceFromForm(
+  recurrenceFrequency: RecurrenceFrequency,
+  recurrenceEndMode: RecurrenceEndMode,
+  recurrenceUntilDate: string,
+  recurrenceCount: string,
+  selectedDate: Date,
+  startAt: Date,
+): { recurrence: ScheduleRecurrence | null; error: string | null } {
+  if (recurrenceFrequency === 'none') {
+    return { recurrence: defaultScheduleRecurrence, error: null }
+  }
+
+  if (recurrenceEndMode === 'onDate') {
+    const untilDay = parse(recurrenceUntilDate, 'yyyy-MM-dd', selectedDate)
+    if (!isValid(untilDay)) {
+      return { recurrence: null, error: '繰り返しの終了日を正しく入力してください。' }
+    }
+    if (isBefore(startOfDay(untilDay), startOfDay(startAt))) {
+      return { recurrence: null, error: '繰り返しの終了日は開始日以降にしてください。' }
+    }
+    return {
+      recurrence: {
+        frequency: recurrenceFrequency,
+        endMode: 'onDate',
+        untilDate: recurrenceUntilDate,
+        count: null,
+      },
+      error: null,
+    }
+  }
+
+  if (recurrenceEndMode === 'afterCount') {
+    const count = Number.parseInt(recurrenceCount, 10)
+    if (
+      !Number.isInteger(count) ||
+      count < recurrenceCountMin ||
+      count > recurrenceCountMax
+    ) {
+      return {
+        recurrence: null,
+        error: `繰り返し回数は${recurrenceCountMin}〜${recurrenceCountMax}で入力してください。`,
+      }
+    }
+    return {
+      recurrence: {
+        frequency: recurrenceFrequency,
+        endMode: 'afterCount',
+        untilDate: null,
+        count,
+      },
+      error: null,
+    }
+  }
+
+  return {
+    recurrence: {
+      frequency: recurrenceFrequency,
+      endMode: 'never',
+      untilDate: null,
+      count: null,
+    },
+    error: null,
+  }
+}
+
+interface OverlapWarningItem {
+  scheduleId: string
+  title: string
+  firstStartAt: string
+  count: number
+}
+
+function detectDayOverlapWarnings(daySchedules: ScheduleOccurrence[]): OverlapWarningItem[] {
+  if (daySchedules.length < 2) {
+    return []
+  }
+
+  const timedItems: Array<{
+    scheduleId: string
+    title: string
+    startAt: string
+    startMs: number
+    endMs: number
+  }> = []
+
+  for (const item of daySchedules) {
+    if (item.allDay) {
+      continue
+    }
+    const start = parseISO(item.startAt)
+    const end = parseISO(item.endAt)
+    if (!isValid(start) || !isValid(end)) {
+      continue
+    }
+    if (!isSameDay(start, end)) {
+      continue
+    }
+    if (!isBefore(start, end)) {
+      continue
+    }
+
+    timedItems.push({
+      scheduleId: item.scheduleId,
+      title: item.title,
+      startAt: item.startAt,
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+    })
+  }
+
+  if (timedItems.length < 2) {
+    return []
+  }
+
+  const warningMap = new Map<string, OverlapWarningItem>()
+  const upsertWarning = (item: (typeof timedItems)[number]): void => {
+    const prev = warningMap.get(item.scheduleId)
+    if (!prev) {
+      warningMap.set(item.scheduleId, {
+        scheduleId: item.scheduleId,
+        title: item.title,
+        firstStartAt: item.startAt,
+        count: 1,
+      })
+      return
+    }
+
+    prev.count += 1
+    if (item.startMs < parseISO(prev.firstStartAt).getTime()) {
+      prev.firstStartAt = item.startAt
+    }
+  }
+
+  for (let i = 0; i < timedItems.length - 1; i += 1) {
+    const current = timedItems[i]
+    for (let j = i + 1; j < timedItems.length; j += 1) {
+      const candidate = timedItems[j]
+      if (current.startMs < candidate.endMs && current.endMs > candidate.startMs) {
+        upsertWarning(current)
+        upsertWarning(candidate)
+      }
+    }
+  }
+
+  return [...warningMap.values()].sort(
+    (a, b) =>
+      parseISO(a.firstStartAt).getTime() - parseISO(b.firstStartAt).getTime(),
+  )
+}
+
 export function SchedulePanel({
   selectedDate,
   daySchedules,
@@ -217,6 +368,10 @@ export function SchedulePanel({
     initialFormValues.recurrenceCount,
   )
   const [formError, setFormError] = useState<string | null>(null)
+  const overlapWarnings = useMemo(
+    () => detectDayOverlapWarnings(daySchedules),
+    [daySchedules],
+  )
 
   const handleStartDateChange = (nextStartDate: string): void => {
     setStartDate(nextStartDate)
@@ -281,51 +436,19 @@ export function SchedulePanel({
       }
     }
 
-    let recurrence = defaultScheduleRecurrence
-    if (recurrenceFrequency !== 'none') {
-      if (recurrenceEndMode === 'onDate') {
-        const untilDay = parse(recurrenceUntilDate, 'yyyy-MM-dd', selectedDate)
-        if (!isValid(untilDay)) {
-          setFormError('繰り返しの終了日を正しく入力してください。')
-          return
-        }
-        if (isBefore(startOfDay(untilDay), startOfDay(startAt))) {
-          setFormError('繰り返しの終了日は開始日以降にしてください。')
-          return
-        }
-        recurrence = {
-          frequency: recurrenceFrequency,
-          endMode: 'onDate',
-          untilDate: recurrenceUntilDate,
-          count: null,
-        }
-      } else if (recurrenceEndMode === 'afterCount') {
-        const count = Number.parseInt(recurrenceCount, 10)
-        if (
-          !Number.isInteger(count) ||
-          count < recurrenceCountMin ||
-          count > recurrenceCountMax
-        ) {
-          setFormError(
-            `繰り返し回数は${recurrenceCountMin}〜${recurrenceCountMax}で入力してください。`,
-          )
-          return
-        }
-        recurrence = {
-          frequency: recurrenceFrequency,
-          endMode: 'afterCount',
-          untilDate: null,
-          count,
-        }
-      } else {
-        recurrence = {
-          frequency: recurrenceFrequency,
-          endMode: 'never',
-          untilDate: null,
-          count: null,
-        }
-      }
+    const recurrenceResult = buildRecurrenceFromForm(
+      recurrenceFrequency,
+      recurrenceEndMode,
+      recurrenceUntilDate,
+      recurrenceCount,
+      selectedDate,
+      startAt,
+    )
+    if (!recurrenceResult.recurrence) {
+      setFormError(recurrenceResult.error ?? '繰り返し設定が不正です。')
+      return
     }
+    const recurrence = recurrenceResult.recurrence
 
     await onSubmit({
       id: editingSchedule?.id,
@@ -538,6 +661,26 @@ export function SchedulePanel({
               </div>
             )}
           </div>
+
+          {overlapWarnings.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/50 dark:bg-amber-900/20 dark:text-amber-300">
+              <p className="font-semibold">
+                時間が重なる予定があります（{overlapWarnings.length}件）
+              </p>
+              <p className="mt-0.5">保存は可能ですが、内容を確認してください。</p>
+              <ul className="mt-1 space-y-0.5">
+                {overlapWarnings.slice(0, 3).map((warning) => (
+                  <li key={warning.scheduleId}>
+                    {warning.title}（{format(parseISO(warning.firstStartAt), 'M/d HH:mm')}）
+                    {warning.count > 1 ? ` +${warning.count - 1}件` : ''}
+                  </li>
+                ))}
+              </ul>
+              {overlapWarnings.length > 3 && (
+                <p className="mt-0.5">ほか {overlapWarnings.length - 3} 件</p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">

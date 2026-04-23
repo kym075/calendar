@@ -7,6 +7,14 @@ import { fileURLToPath } from 'node:url'
 import { format, isBefore, isValid, parse, parseISO, startOfDay } from 'date-fns'
 import { ipcChannels } from '../shared/types/ipc'
 import {
+  defaultAppSettings,
+  isCalendarViewMode,
+  isNotificationLeadMinutes,
+  type AppSettings,
+  type AppSettingsInput,
+  type NotificationLeadMinutes,
+} from '../shared/types/settings'
+import {
   defaultScheduleRecurrence,
   isRecurrenceEndMode,
   isRecurrenceFrequency,
@@ -28,7 +36,7 @@ import {
 } from '../shared/utils/schedule'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const FIVE_MINUTES_MS = 5 * 60 * 1000
+const MINUTE_MS = 60 * 1000
 const MAX_SET_TIMEOUT_MS = 2_147_483_647
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } =
   electron
@@ -39,10 +47,15 @@ let mainWindow: InstanceType<typeof BrowserWindow> | null = null
 let tray: InstanceType<typeof Tray> | null = null
 let appQuitting = false
 let schedules: Schedule[] = []
+let appSettings: AppSettings = defaultAppSettings
 const notificationTimers = new Map<ScheduleId, NodeJS.Timeout>()
 
 function getScheduleFilePath(): string {
   return join(app.getPath('userData'), 'schedules.json')
+}
+
+function getSettingsFilePath(): string {
+  return join(app.getPath('userData'), 'settings.json')
 }
 
 async function ensureScheduleFile(): Promise<void> {
@@ -53,8 +66,67 @@ async function ensureScheduleFile(): Promise<void> {
   }
 }
 
+async function ensureSettingsFile(): Promise<void> {
+  const filePath = getSettingsFilePath()
+  await mkdir(dirname(filePath), { recursive: true })
+  if (!existsSync(filePath)) {
+    await writeFile(filePath, JSON.stringify(defaultAppSettings, null, 2), 'utf-8')
+  }
+}
+
 function isScheduleColor(value: unknown): value is ScheduleColor {
   return typeof value === 'string' && colorSet.has(value as ScheduleColor)
+}
+
+function normalizeSettingsRecord(value: unknown): AppSettings {
+  if (typeof value !== 'object' || value === null) {
+    return defaultAppSettings
+  }
+
+  const record = value as Record<string, unknown>
+  return {
+    notificationLeadMinutes: isNotificationLeadMinutes(record.notificationLeadMinutes)
+      ? record.notificationLeadMinutes
+      : defaultAppSettings.notificationLeadMinutes,
+    preferredViewMode: isCalendarViewMode(record.preferredViewMode)
+      ? record.preferredViewMode
+      : defaultAppSettings.preferredViewMode,
+  }
+}
+
+function mergeSettings(input: AppSettingsInput): AppSettings {
+  const nextLeadMinutes = input.notificationLeadMinutes
+  const nextViewMode = input.preferredViewMode
+
+  if (
+    nextLeadMinutes !== undefined &&
+    !isNotificationLeadMinutes(nextLeadMinutes)
+  ) {
+    throw new Error('通知タイミングの設定が不正です。')
+  }
+  if (nextViewMode !== undefined && !isCalendarViewMode(nextViewMode)) {
+    throw new Error('表示モードの設定が不正です。')
+  }
+
+  return {
+    notificationLeadMinutes:
+      nextLeadMinutes ?? appSettings.notificationLeadMinutes,
+    preferredViewMode: nextViewMode ?? appSettings.preferredViewMode,
+  }
+}
+
+function getNotificationLeadMs(): number {
+  return appSettings.notificationLeadMinutes * MINUTE_MS
+}
+
+function formatLeadLabel(minutes: NotificationLeadMinutes): string {
+  if (minutes === 24 * 60) {
+    return '1日前'
+  }
+  if (minutes % 60 === 0) {
+    return `${minutes / 60}時間前`
+  }
+  return `${minutes}分前`
 }
 
 function parseDateInput(value: string): Date | null {
@@ -229,9 +301,27 @@ async function loadSchedulesFromDisk(): Promise<Schedule[]> {
   }
 }
 
+async function loadSettingsFromDisk(): Promise<AppSettings> {
+  await ensureSettingsFile()
+  const filePath = getSettingsFilePath()
+  const text = await readFile(filePath, 'utf-8')
+
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return normalizeSettingsRecord(parsed)
+  } catch {
+    return defaultAppSettings
+  }
+}
+
 async function saveSchedulesToDisk(items: Schedule[]): Promise<void> {
   const filePath = getScheduleFilePath()
   await writeFile(filePath, JSON.stringify(sortSchedules(items), null, 2), 'utf-8')
+}
+
+async function saveSettingsToDisk(settings: AppSettings): Promise<void> {
+  const filePath = getSettingsFilePath()
+  await writeFile(filePath, JSON.stringify(settings, null, 2), 'utf-8')
 }
 
 function validateScheduleInput(input: ScheduleInput): ScheduleRecurrence {
@@ -286,7 +376,7 @@ function showNotification(occurrence: Pick<ScheduleOccurrence, 'title' | 'startA
 
   const startLabel = format(start, 'HH:mm')
   new Notification({
-    title: '予定の5分前です',
+    title: `予定の${formatLeadLabel(appSettings.notificationLeadMinutes)}です`,
     body: `${occurrence.title} (${startLabel}開始)`,
   }).show()
 }
@@ -298,7 +388,8 @@ function scheduleNextNotificationForSchedule(scheduleId: ScheduleId): void {
     return
   }
 
-  const threshold = new Date(Date.now() + FIVE_MINUTES_MS)
+  const leadMs = getNotificationLeadMs()
+  const threshold = new Date(Date.now() + leadMs)
   const nextOccurrence = findNextOccurrenceStartingAfter(latest, threshold)
   if (!nextOccurrence) {
     notificationTimers.delete(scheduleId)
@@ -311,7 +402,7 @@ function scheduleNextNotificationForSchedule(scheduleId: ScheduleId): void {
     return
   }
 
-  armNotificationTimer(nextOccurrence, nextStart.getTime() - FIVE_MINUTES_MS)
+  armNotificationTimer(nextOccurrence, nextStart.getTime() - leadMs)
 }
 
 function armNotificationTimer(
@@ -341,7 +432,8 @@ function armNotificationTimer(
 
 function scheduleUpcomingNotifications(): void {
   clearNotificationTimers()
-  const threshold = new Date(Date.now() + FIVE_MINUTES_MS)
+  const leadMs = getNotificationLeadMs()
+  const threshold = new Date(Date.now() + leadMs)
 
   for (const schedule of schedules) {
     const nextOccurrence = findNextOccurrenceStartingAfter(schedule, threshold)
@@ -352,7 +444,7 @@ function scheduleUpcomingNotifications(): void {
     if (!isValid(start)) {
       continue
     }
-    armNotificationTimer(nextOccurrence, start.getTime() - FIVE_MINUTES_MS)
+    armNotificationTimer(nextOccurrence, start.getTime() - leadMs)
   }
 }
 
@@ -413,6 +505,14 @@ async function removeSchedule(id: ScheduleId): Promise<Schedule[]> {
   await saveSchedulesToDisk(schedules)
   scheduleUpcomingNotifications()
   return schedules
+}
+
+async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
+  const nextSettings = mergeSettings(input)
+  appSettings = nextSettings
+  await saveSettingsToDisk(nextSettings)
+  scheduleUpcomingNotifications()
+  return nextSettings
 }
 
 function createWindow(): InstanceType<typeof BrowserWindow> {
@@ -497,6 +597,11 @@ function registerIpcHandlers(): void {
     ipcChannels.schedules.remove,
     async (_event, id: ScheduleId) => removeSchedule(id),
   )
+  ipcMain.handle(ipcChannels.settings.get, async () => appSettings)
+  ipcMain.handle(
+    ipcChannels.settings.update,
+    async (_event, input: AppSettingsInput) => updateSettings(input),
+  )
 }
 
 app.on('before-quit', () => {
@@ -512,6 +617,7 @@ app.on('window-all-closed', () => {
 })
 
 app.whenReady().then(async () => {
+  appSettings = await loadSettingsFromDisk()
   schedules = await loadSchedulesFromDisk()
   scheduleUpcomingNotifications()
 

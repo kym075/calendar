@@ -1,12 +1,14 @@
 import {
   addDays,
   eachDayOfInterval,
+  endOfYear,
   endOfDay,
   endOfMonth,
   endOfWeek,
   format,
   isValid,
   parseISO,
+  startOfYear,
   startOfMonth,
   startOfDay,
   startOfWeek,
@@ -28,6 +30,15 @@ export function createMonthGrid(viewMonth: Date): Date[] {
     dates.push(day)
   }
   return dates
+}
+
+export function createWeekGrid(viewDate: Date): Date[] {
+  const start = startOfWeek(viewDate, { weekStartsOn: 0 })
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index))
+}
+
+export function toMonthKey(date: Date): string {
+  return format(date, 'yyyy-MM')
 }
 
 interface ScheduleDisplayRange {
@@ -109,4 +120,27 @@ export function buildDayScheduleList(
   day: Date,
 ): ScheduleOccurrence[] {
   return getScheduleOccurrencesForRange(items, startOfDay(day), endOfDay(day))
+}
+
+export function buildYearMonthCountMap(
+  items: Schedule[],
+  yearDate: Date,
+): Record<string, number> {
+  const map: Record<string, number> = {}
+  const occurrences = getScheduleOccurrencesForRange(
+    items,
+    startOfYear(yearDate),
+    endOfYear(yearDate),
+  )
+
+  for (const occurrence of occurrences) {
+    const startAt = parseISO(occurrence.startAt)
+    if (!isValid(startAt)) {
+      continue
+    }
+    const key = toMonthKey(startAt)
+    map[key] = (map[key] ?? 0) + 1
+  }
+
+  return map
 }
