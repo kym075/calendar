@@ -39,10 +39,13 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const MINUTE_MS = 60 * 1000
 const MAX_SET_TIMEOUT_MS = 2_147_483_647
+const STARTUP_ARG = '--startup'
+const APP_DISPLAY_NAME = 'Toki'
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } =
   electron
 
 const colorSet = new Set<ScheduleColor>(scheduleColors)
+const isStartupLaunch = process.argv.includes(STARTUP_ARG)
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null
 let tray: InstanceType<typeof Tray> | null = null
@@ -473,6 +476,25 @@ function scheduleUpcomingNotifications(): void {
   }
 }
 
+function configureAutoLaunch(): void {
+  if (!app.isPackaged || process.platform !== 'win32') {
+    return
+  }
+
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    path: process.execPath,
+    args: [STARTUP_ARG],
+  })
+}
+
+function getPackagedAssetPath(...parts: string[]): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'app.asar', ...parts)
+  }
+  return join(app.getAppPath(), ...parts)
+}
+
 async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
   const { recurrence, color } = validateScheduleInput(input)
   const nowIso = new Date().toISOString()
@@ -541,12 +563,14 @@ async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
 }
 
 function createWindow(): InstanceType<typeof BrowserWindow> {
+  const windowIconPath = getPackagedAssetPath('build', 'icon.png')
   const win = new BrowserWindow({
     width: 1200,
     height: 760,
     minWidth: 840,
     minHeight: 620,
     show: false,
+    icon: windowIconPath,
     webPreferences: {
       preload: join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -555,7 +579,9 @@ function createWindow(): InstanceType<typeof BrowserWindow> {
   })
 
   win.once('ready-to-show', () => {
-    win.show()
+    if (!isStartupLaunch) {
+      win.show()
+    }
   })
   win.setMenuBarVisibility(false)
 
@@ -581,12 +607,17 @@ function createTray(): void {
     return
   }
 
-  const icon = nativeImage.createFromDataURL(
+  const fallbackIcon = nativeImage.createFromDataURL(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAKUlEQVR4nGNkYGD4z0AEYBxVSFJgqJQwajA0mEqYGSQxQDRA1GBoAAB2kwQVcC+hFgAAAABJRU5ErkJggg==',
   )
+  const trayIconPath = getPackagedAssetPath('build', 'icon.png')
+  const trayIcon = nativeImage.createFromPath(trayIconPath)
+  const icon = trayIcon.isEmpty()
+    ? fallbackIcon
+    : trayIcon.resize({ width: 16, height: 16 })
 
   tray = new Tray(icon)
-  tray.setToolTip('Calendar App')
+  tray.setToolTip(APP_DISPLAY_NAME)
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -642,9 +673,11 @@ app.on('window-all-closed', () => {
 })
 
 app.whenReady().then(async () => {
+  app.setName(APP_DISPLAY_NAME)
   appSettings = await loadSettingsFromDisk()
   schedules = await loadSchedulesFromDisk()
   scheduleUpcomingNotifications()
+  configureAutoLaunch()
 
   Menu.setApplicationMenu(null)
   registerIpcHandlers()
