@@ -10,6 +10,7 @@ import type {
   ScheduleColor,
   ScheduleOccurrence,
 } from '../../shared/types/schedule'
+import type { DailyWeather } from '../../shared/types/weather'
 
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
 const badgeClassMap: Record<ScheduleColor, string> = {
@@ -41,6 +42,7 @@ interface CalendarViewProps {
   viewMonth: Date
   selectedDate: Date
   schedulesByDate: Record<string, ScheduleOccurrence[]>
+  weatherByDate: Record<string, DailyWeather>
   onChangeMonth: (nextMonth: Date) => void
   onSelectDate: (date: Date) => void
   onDateDoubleTap?: (date: Date) => void
@@ -71,6 +73,7 @@ export function CalendarView({
   viewMonth,
   selectedDate,
   schedulesByDate,
+  weatherByDate,
   onChangeMonth,
   onSelectDate,
   onDateDoubleTap,
@@ -141,6 +144,7 @@ export function CalendarView({
         {days.map((date) => {
           const key = toDateKey(date)
           const schedules = schedulesByDate[key] ?? []
+          const weather = weatherByDate[key] ?? null
           const multiDaySegments = schedules
             .map((schedule) => {
               const range = getScheduleDisplayRange(schedule)
@@ -185,16 +189,23 @@ export function CalendarView({
               ].join(' ')}
               onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
-              <span
-                className={[
-                  isDenseMonth
-                    ? 'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium'
-                    : 'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
-                  today ? 'bg-sky-500 text-white' : '',
-                ].join(' ')}
-              >
-                {format(date, 'd')}
-              </span>
+              <div className="flex items-start justify-between gap-1">
+                <span
+                  className={[
+                    isDenseMonth
+                      ? 'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium'
+                      : 'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
+                    today ? 'bg-sky-500 text-white' : '',
+                  ].join(' ')}
+                >
+                  {format(date, 'd')}
+                </span>
+                {weather && (
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {weather.weatherShortLabel}
+                  </span>
+                )}
+              </div>
               {schedules.length > 0 && (
                 <div className={isDenseMonth ? 'mt-1 space-y-0.5' : 'mt-1.5 space-y-1'}>
                   <p

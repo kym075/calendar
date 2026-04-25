@@ -1,5 +1,6 @@
 import type { Schedule, ScheduleId, ScheduleInput } from './schedule'
 import type { AppSettings, AppSettingsInput } from './settings'
+import type { DailyWeather, WeatherRangeInput } from './weather'
 
 export const ipcChannels = {
   schedules: {
@@ -11,6 +12,9 @@ export const ipcChannels = {
     get: 'settings:get',
     update: 'settings:update',
   },
+  weather: {
+    byRange: 'weather:byRange',
+  },
 } as const
 
 export interface RendererApi {
@@ -19,4 +23,5 @@ export interface RendererApi {
   deleteSchedule: (id: ScheduleId) => Promise<Schedule[]>
   getSettings: () => Promise<AppSettings>
   updateSettings: (input: AppSettingsInput) => Promise<AppSettings>
+  getWeatherByRange: (input: WeatherRangeInput) => Promise<DailyWeather[]>
 }

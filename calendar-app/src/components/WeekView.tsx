@@ -10,6 +10,7 @@ import {
 import { ja } from 'date-fns/locale'
 import { useRef } from 'react'
 import type { ScheduleColor, ScheduleOccurrence } from '../../shared/types/schedule'
+import type { DailyWeather } from '../../shared/types/weather'
 import { toDateKey } from '../utils/calendar'
 
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
@@ -27,6 +28,7 @@ interface WeekViewProps {
   viewWeek: Date
   selectedDate: Date
   schedulesByDate: Record<string, ScheduleOccurrence[]>
+  weatherByDate: Record<string, DailyWeather>
   onChangeWeek: (nextWeek: Date) => void
   onSelectDate: (date: Date) => void
   onDateDoubleTap?: (date: Date) => void
@@ -54,6 +56,7 @@ export function WeekView({
   viewWeek,
   selectedDate,
   schedulesByDate,
+  weatherByDate,
   onChangeWeek,
   onSelectDate,
   onDateDoubleTap,
@@ -105,6 +108,7 @@ export function WeekView({
         {days.map((date, index) => {
           const key = toDateKey(date)
           const daySchedules = schedulesByDate[key] ?? []
+          const weather = weatherByDate[key] ?? null
           const selected = isSameDay(date, selectedDate)
           const today = isToday(date)
           const dayLabelClass =
@@ -131,15 +135,31 @@ export function WeekView({
                 <p className={['text-xs font-semibold', dayLabelClass].join(' ')}>
                   {weekLabels[index]}
                 </p>
-                <span
-                  className={[
-                    'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
-                    today ? 'bg-sky-500 text-white' : 'text-slate-700 dark:text-slate-100',
-                  ].join(' ')}
-                >
-                  {format(date, 'd')}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {weather && (
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {weather.weatherShortLabel}
+                    </span>
+                  )}
+                  <span
+                    className={[
+                      'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
+                      today ? 'bg-sky-500 text-white' : 'text-slate-700 dark:text-slate-100',
+                    ].join(' ')}
+                  >
+                    {format(date, 'd')}
+                  </span>
+                </div>
               </div>
+
+              {weather && (
+                <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  {weather.weatherLabel}
+                  {weather.temperatureMaxC !== null && weather.temperatureMinC !== null
+                    ? ` ${weather.temperatureMaxC}/${weather.temperatureMinC}℃`
+                    : ''}
+                </p>
+              )}
 
               <div className="mt-2 space-y-1">
                 {daySchedules.length === 0 && (

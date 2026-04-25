@@ -4,16 +4,26 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { format, isBefore, isValid, parse, parseISO, startOfDay } from 'date-fns'
+import {
+  addDays,
+  format,
+  isBefore,
+  isValid,
+  parse,
+  parseISO,
+  startOfDay,
+} from 'date-fns'
 import { ipcChannels } from '../shared/types/ipc'
 import {
   isColorTheme,
   defaultAppSettings,
   isCalendarViewMode,
   isNotificationLeadMinutes,
+  isWeatherRegion,
   type AppSettings,
   type AppSettingsInput,
   type NotificationLeadMinutes,
+  type WeatherRegion,
 } from '../shared/types/settings'
 import {
   defaultScheduleRecurrence,
@@ -35,12 +45,29 @@ import {
   findNextOccurrenceStartingAfter,
   sortSchedules,
 } from '../shared/utils/schedule'
+import type { DailyWeather, WeatherRangeInput } from '../shared/types/weather'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const MINUTE_MS = 60 * 1000
 const MAX_SET_TIMEOUT_MS = 2_147_483_647
 const STARTUP_ARG = '--startup'
 const APP_DISPLAY_NAME = 'Toki'
+interface WeatherLocation {
+  latitude: number
+  longitude: number
+  timezone: string
+}
+
+const WEATHER_LOCATIONS: Record<WeatherRegion, WeatherLocation> = {
+  nagoya: { latitude: 35.18147, longitude: 136.90641, timezone: 'Asia/Tokyo' },
+  tokyo: { latitude: 35.681236, longitude: 139.767125, timezone: 'Asia/Tokyo' },
+  osaka: { latitude: 34.702485, longitude: 135.495951, timezone: 'Asia/Tokyo' },
+  sapporo: { latitude: 43.068661, longitude: 141.350755, timezone: 'Asia/Tokyo' },
+  fukuoka: { latitude: 33.590355, longitude: 130.401716, timezone: 'Asia/Tokyo' },
+}
+const WEATHER_CACHE_MS = 15 * MINUTE_MS
+const WEATHER_REQUEST_TIMEOUT_MS = 10_000
+const WEATHER_FORECAST_MAX_DAYS = 16
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } =
   electron
 
@@ -53,6 +80,10 @@ let appQuitting = false
 let schedules: Schedule[] = []
 let appSettings: AppSettings = defaultAppSettings
 const notificationTimers = new Map<ScheduleId, NodeJS.Timeout>()
+const weatherRangeCache = new Map<
+  string,
+  { expiresAt: number; items: DailyWeather[] }
+>()
 
 function getScheduleFilePath(): string {
   return join(app.getPath('userData'), 'schedules.json')
@@ -106,6 +137,9 @@ function normalizeSettingsRecord(value: unknown): AppSettings {
     colorTheme: isColorTheme(record.colorTheme)
       ? record.colorTheme
       : defaultAppSettings.colorTheme,
+    weatherRegion: isWeatherRegion(record.weatherRegion)
+      ? record.weatherRegion
+      : defaultAppSettings.weatherRegion,
   }
 }
 
@@ -113,6 +147,7 @@ function mergeSettings(input: AppSettingsInput): AppSettings {
   const nextLeadMinutes = input.notificationLeadMinutes
   const nextViewMode = input.preferredViewMode
   const nextColorTheme = input.colorTheme
+  const nextWeatherRegion = input.weatherRegion
 
   if (
     nextLeadMinutes !== undefined &&
@@ -126,12 +161,16 @@ function mergeSettings(input: AppSettingsInput): AppSettings {
   if (nextColorTheme !== undefined && !isColorTheme(nextColorTheme)) {
     throw new Error('テーマの設定が不正です。')
   }
+  if (nextWeatherRegion !== undefined && !isWeatherRegion(nextWeatherRegion)) {
+    throw new Error('地域の設定が不正です。')
+  }
 
   return {
     notificationLeadMinutes:
       nextLeadMinutes ?? appSettings.notificationLeadMinutes,
     preferredViewMode: nextViewMode ?? appSettings.preferredViewMode,
     colorTheme: nextColorTheme ?? appSettings.colorTheme,
+    weatherRegion: nextWeatherRegion ?? appSettings.weatherRegion,
   }
 }
 
@@ -476,6 +515,242 @@ function scheduleUpcomingNotifications(): void {
   }
 }
 
+function toDateKey(date: Date): string {
+  return format(date, 'yyyy-MM-dd')
+}
+
+function getCurrentWeatherLocation(): WeatherLocation {
+  return WEATHER_LOCATIONS[appSettings.weatherRegion]
+}
+
+function getWeatherLabels(weatherCode: number): {
+  weatherLabel: string
+  weatherShortLabel: string
+} {
+  if (weatherCode === 0) {
+    return { weatherLabel: '☀️', weatherShortLabel: '☀️' }
+  }
+  if (weatherCode === 1) {
+    return { weatherLabel: '🌤️', weatherShortLabel: '🌤️' }
+  }
+  if (weatherCode === 2) {
+    return { weatherLabel: '⛅', weatherShortLabel: '⛅' }
+  }
+  if (weatherCode === 3) {
+    return { weatherLabel: '☁️', weatherShortLabel: '☁️' }
+  }
+  if (weatherCode === 45 || weatherCode === 48) {
+    return { weatherLabel: '🌫️', weatherShortLabel: '🌫️' }
+  }
+  if ([51, 53, 55, 56, 57].includes(weatherCode)) {
+    return { weatherLabel: '🌦️', weatherShortLabel: '🌦️' }
+  }
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) {
+    return { weatherLabel: '🌧️', weatherShortLabel: '🌧️' }
+  }
+  if ([71, 73, 75, 77, 85, 86].includes(weatherCode)) {
+    return { weatherLabel: '🌨️', weatherShortLabel: '🌨️' }
+  }
+  if ([95, 96, 99].includes(weatherCode)) {
+    return { weatherLabel: '⛈️', weatherShortLabel: '⛈️' }
+  }
+  return { weatherLabel: '🌈', weatherShortLabel: '🌈' }
+}
+
+async function fetchJsonWithTimeout(url: string): Promise<unknown> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), WEATHER_REQUEST_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      throw new Error(
+        `天気APIの取得に失敗しました。(status: ${response.status})`,
+      )
+    }
+    return response.json()
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('天気APIの取得がタイムアウトしました。')
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function toDailyWeatherList(value: unknown): DailyWeather[] {
+  if (typeof value !== 'object' || value === null) {
+    return []
+  }
+
+  const record = value as Record<string, unknown>
+  if (typeof record.daily !== 'object' || record.daily === null) {
+    return []
+  }
+
+  const daily = record.daily as Record<string, unknown>
+  const dateList = Array.isArray(daily.time) ? daily.time : []
+  const weatherCodeList = Array.isArray(daily.weather_code) ? daily.weather_code : []
+  const maxTempList = Array.isArray(daily.temperature_2m_max)
+    ? daily.temperature_2m_max
+    : []
+  const minTempList = Array.isArray(daily.temperature_2m_min)
+    ? daily.temperature_2m_min
+    : []
+
+  const items: DailyWeather[] = []
+  for (let index = 0; index < dateList.length; index += 1) {
+    const date = dateList[index]
+    if (typeof date !== 'string') {
+      continue
+    }
+
+    const weatherCodeCandidate = weatherCodeList[index]
+    const weatherCode =
+      typeof weatherCodeCandidate === 'number' &&
+      Number.isFinite(weatherCodeCandidate)
+        ? Math.trunc(weatherCodeCandidate)
+        : -1
+    const maxTempCandidate = maxTempList[index]
+    const minTempCandidate = minTempList[index]
+    const temperatureMaxC =
+      typeof maxTempCandidate === 'number' && Number.isFinite(maxTempCandidate)
+        ? Math.round(maxTempCandidate)
+        : null
+    const temperatureMinC =
+      typeof minTempCandidate === 'number' && Number.isFinite(minTempCandidate)
+        ? Math.round(minTempCandidate)
+        : null
+    const { weatherLabel, weatherShortLabel } = getWeatherLabels(weatherCode)
+
+    items.push({
+      date,
+      weatherCode,
+      weatherLabel,
+      weatherShortLabel,
+      temperatureMaxC,
+      temperatureMinC,
+    })
+  }
+
+  return items
+}
+
+async function fetchArchiveWeather(
+  location: WeatherLocation,
+  startDate: string,
+  endDate: string,
+): Promise<DailyWeather[]> {
+  const url = new URL('https://archive-api.open-meteo.com/v1/archive')
+  url.searchParams.set('latitude', String(location.latitude))
+  url.searchParams.set('longitude', String(location.longitude))
+  url.searchParams.set('timezone', location.timezone)
+  url.searchParams.set(
+    'daily',
+    'weather_code,temperature_2m_max,temperature_2m_min',
+  )
+  url.searchParams.set('start_date', startDate)
+  url.searchParams.set('end_date', endDate)
+
+  const json = await fetchJsonWithTimeout(url.toString())
+  return toDailyWeatherList(json)
+}
+
+async function fetchForecastWeather(
+  location: WeatherLocation,
+  startDate: string,
+  endDate: string,
+): Promise<DailyWeather[]> {
+  const url = new URL('https://api.open-meteo.com/v1/forecast')
+  url.searchParams.set('latitude', String(location.latitude))
+  url.searchParams.set('longitude', String(location.longitude))
+  url.searchParams.set('timezone', location.timezone)
+  url.searchParams.set(
+    'daily',
+    'weather_code,temperature_2m_max,temperature_2m_min',
+  )
+  url.searchParams.set('start_date', startDate)
+  url.searchParams.set('end_date', endDate)
+
+  const json = await fetchJsonWithTimeout(url.toString())
+  return toDailyWeatherList(json)
+}
+
+async function listDailyWeatherByRange(
+  input: WeatherRangeInput,
+): Promise<DailyWeather[]> {
+  const startDay = parseDateInput(input.startDate)
+  const endDay = parseDateInput(input.endDate)
+  if (!startDay || !endDay) {
+    throw new Error('天気取得の日付形式が不正です。')
+  }
+  if (startDay.getTime() > endDay.getTime()) {
+    throw new Error('天気取得の期間指定が不正です。')
+  }
+
+  const location = getCurrentWeatherLocation()
+  const cacheKey = `${appSettings.weatherRegion}:${input.startDate}:${input.endDate}`
+  const cached = weatherRangeCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.items
+  }
+
+  const segmentTasks: Promise<DailyWeather[]>[] = []
+  const today = startOfDay(new Date())
+  const yesterday = addDays(today, -1)
+  const forecastLimit = addDays(today, WEATHER_FORECAST_MAX_DAYS - 1)
+
+  if (startDay.getTime() <= yesterday.getTime()) {
+    const pastEnd =
+      endDay.getTime() <= yesterday.getTime() ? endDay : yesterday
+    segmentTasks.push(
+      fetchArchiveWeather(location, toDateKey(startDay), toDateKey(pastEnd)),
+    )
+  }
+
+  if (endDay.getTime() >= today.getTime()) {
+    const futureStart =
+      startDay.getTime() >= today.getTime() ? startDay : today
+    if (futureStart.getTime() <= forecastLimit.getTime()) {
+      const futureEnd =
+        endDay.getTime() <= forecastLimit.getTime() ? endDay : forecastLimit
+      if (futureStart.getTime() <= futureEnd.getTime()) {
+        segmentTasks.push(
+          fetchForecastWeather(
+            location,
+            toDateKey(futureStart),
+            toDateKey(futureEnd),
+          ),
+        )
+      }
+    }
+  }
+
+  if (segmentTasks.length === 0) {
+    return []
+  }
+
+  const segmentResults = await Promise.all(segmentTasks)
+  const byDate = new Map<string, DailyWeather>()
+  for (const segment of segmentResults) {
+    for (const item of segment) {
+      if (item.date >= input.startDate && item.date <= input.endDate) {
+        byDate.set(item.date, item)
+      }
+    }
+  }
+
+  const items = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+  weatherRangeCache.set(cacheKey, {
+    expiresAt: Date.now() + WEATHER_CACHE_MS,
+    items,
+  })
+  return items
+}
+
 function configureAutoLaunch(): void {
   if (!app.isPackaged || process.platform !== 'win32') {
     return
@@ -556,8 +831,13 @@ async function removeSchedule(id: ScheduleId): Promise<Schedule[]> {
 
 async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
   const nextSettings = mergeSettings(input)
+  const weatherRegionChanged =
+    nextSettings.weatherRegion !== appSettings.weatherRegion
   appSettings = nextSettings
   await saveSettingsToDisk(nextSettings)
+  if (weatherRegionChanged) {
+    weatherRangeCache.clear()
+  }
   scheduleUpcomingNotifications()
   return nextSettings
 }
@@ -657,6 +937,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     ipcChannels.settings.update,
     async (_event, input: AppSettingsInput) => updateSettings(input),
+  )
+  ipcMain.handle(
+    ipcChannels.weather.byRange,
+    async (_event, input: WeatherRangeInput) => listDailyWeatherByRange(input),
   )
 }
 

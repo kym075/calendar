@@ -1,4 +1,4 @@
-import { parse, startOfMonth, startOfWeek, startOfYear } from 'date-fns'
+import { format, parse, startOfMonth, startOfWeek, startOfYear } from 'date-fns'
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarView } from './components/CalendarView'
 import { SchedulePanel } from './components/SchedulePanel'
@@ -53,12 +53,16 @@ function App() {
   const {
     schedules,
     settings,
+    weatherByDate,
     selectedDateKey,
     editingId,
     loading,
     error,
+    weatherLoading,
+    weatherError,
     loadSchedules,
     loadSettings,
+    loadWeatherRange,
     saveSchedule,
     deleteSchedule,
     saveSettings,
@@ -140,10 +144,43 @@ function App() {
     [filteredSchedules, viewDate],
   )
 
+  const weatherRange = useMemo(() => {
+    if (viewMode === 'week') {
+      return { start: weekRangeStart, end: weekRangeEnd }
+    }
+    if (viewMode === 'year') {
+      return { start: selectedDate, end: selectedDate }
+    }
+    return { start: monthRangeStart, end: monthRangeEnd }
+  }, [
+    monthRangeEnd,
+    monthRangeStart,
+    selectedDate,
+    viewMode,
+    weekRangeEnd,
+    weekRangeStart,
+  ])
+
+  const weatherRangeStartDate = format(weatherRange.start, 'yyyy-MM-dd')
+  const weatherRangeEndDate = format(weatherRange.end, 'yyyy-MM-dd')
+
+  useEffect(() => {
+    void loadWeatherRange({
+      startDate: weatherRangeStartDate,
+      endDate: weatherRangeEndDate,
+    })
+  }, [
+    loadWeatherRange,
+    settings.weatherRegion,
+    weatherRangeEndDate,
+    weatherRangeStartDate,
+  ])
+
   const daySchedules = useMemo(
     () => buildDayScheduleList(filteredSchedules, selectedDate),
     [filteredSchedules, selectedDate],
   )
+  const selectedDateWeather = weatherByDate[selectedDateKey] ?? null
   const editingSchedule = useMemo(
     () => schedules.find((item) => item.id === editingId) ?? null,
     [schedules, editingId],
@@ -215,6 +252,7 @@ function App() {
           viewWeek={startOfWeek(viewDate)}
           selectedDate={selectedDate}
           schedulesByDate={weekSchedulesByDate}
+          weatherByDate={weatherByDate}
           onChangeWeek={setViewDate}
           onSelectDate={handleSelectDate}
           onDateDoubleTap={mobile ? openMobileList : undefined}
@@ -235,13 +273,14 @@ function App() {
     }
 
     return (
-      <CalendarView
-        viewMonth={startOfMonth(viewDate)}
-        selectedDate={selectedDate}
-        schedulesByDate={monthSchedulesByDate}
-        onChangeMonth={setViewDate}
-        onSelectDate={handleSelectDate}
-        onDateDoubleTap={mobile ? openMobileList : undefined}
+        <CalendarView
+          viewMonth={startOfMonth(viewDate)}
+          selectedDate={selectedDate}
+          schedulesByDate={monthSchedulesByDate}
+          weatherByDate={weatherByDate}
+          onChangeMonth={setViewDate}
+          onSelectDate={handleSelectDate}
+          onDateDoubleTap={mobile ? openMobileList : undefined}
       />
     )
   }
@@ -378,6 +417,9 @@ function App() {
             onDelete={handleDelete}
             onStartEdit={setEditingId}
             onCancelEdit={() => setEditingId(null)}
+            selectedDateWeather={selectedDateWeather}
+            weatherLoading={weatherLoading}
+            weatherError={weatherError}
           />
         </section>
 
@@ -402,6 +444,9 @@ function App() {
             onCancelEdit={cancelMobileEdit}
             viewMode={mobilePanelMode}
             onRequestClose={closeMobilePanel}
+            selectedDateWeather={selectedDateWeather}
+            weatherLoading={weatherLoading}
+            weatherError={weatherError}
           />
         </div>
       )}

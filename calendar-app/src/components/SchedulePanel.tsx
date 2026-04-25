@@ -28,6 +28,7 @@ import {
   scheduleMemoMaxLength,
   scheduleTitleMaxLength,
 } from '../../shared/types/schedule'
+import type { DailyWeather } from '../../shared/types/weather'
 
 const colorClassMap: Record<ScheduleColor, string> = {
   yellow: 'bg-yellow-300',
@@ -69,6 +70,9 @@ interface SchedulePanelProps {
   onDelete: (id: ScheduleId) => Promise<void>
   onStartEdit: (id: ScheduleId) => void
   onCancelEdit: () => void
+  selectedDateWeather: DailyWeather | null
+  weatherLoading: boolean
+  weatherError: string | null
   viewMode?: 'full' | 'list' | 'form'
   onRequestClose?: () => void
   className?: string
@@ -330,6 +334,13 @@ function detectDayOverlapWarnings(daySchedules: ScheduleOccurrence[]): OverlapWa
   )
 }
 
+function formatWeatherSummary(item: DailyWeather): string {
+  if (item.temperatureMaxC !== null && item.temperatureMinC !== null) {
+    return `${item.weatherLabel} ${item.temperatureMaxC}/${item.temperatureMinC}℃`
+  }
+  return item.weatherLabel
+}
+
 export function SchedulePanel({
   selectedDate,
   daySchedules,
@@ -338,6 +349,9 @@ export function SchedulePanel({
   onDelete,
   onStartEdit,
   onCancelEdit,
+  selectedDateWeather,
+  weatherLoading,
+  weatherError,
   viewMode = 'full',
   onRequestClose,
   className = '',
@@ -472,9 +486,31 @@ export function SchedulePanel({
     >
       <header className="shrink-0 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
-            {format(selectedDate, 'M月d日')} の予定
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
+              {format(selectedDate, 'M月d日')} の予定
+            </h2>
+            {selectedDateWeather && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                天気: {formatWeatherSummary(selectedDateWeather)}
+              </p>
+            )}
+            {!selectedDateWeather && weatherLoading && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                天気情報を取得中...
+              </p>
+            )}
+            {!selectedDateWeather && !weatherLoading && weatherError && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                天気情報の取得に失敗しました
+              </p>
+            )}
+            {!selectedDateWeather && !weatherLoading && !weatherError && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                天気データなし
+              </p>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {showPrimaryAction && (
               <button

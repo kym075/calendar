@@ -5,8 +5,13 @@ import type {
   CalendarViewMode,
   ColorTheme,
   NotificationLeadMinutes,
+  WeatherRegion,
 } from '../../shared/types/settings'
-import { colorThemes, notificationLeadMinutesOptions } from '../../shared/types/settings'
+import {
+  colorThemes,
+  notificationLeadMinutesOptions,
+  weatherRegions,
+} from '../../shared/types/settings'
 
 interface SettingsPanelProps {
   settings: AppSettings
@@ -50,6 +55,22 @@ const colorThemeDescriptionMap: Record<ColorTheme, string> = {
   white: '明るくシンプルな配色',
 }
 
+const weatherRegionLabelMap: Record<WeatherRegion, string> = {
+  nagoya: '名古屋',
+  tokyo: '東京',
+  osaka: '大阪',
+  sapporo: '札幌',
+  fukuoka: '福岡',
+}
+
+const weatherRegionDescriptionMap: Record<WeatherRegion, string> = {
+  nagoya: '中部地方の予報を反映',
+  tokyo: '関東地方の予報を反映',
+  osaka: '関西地方の予報を反映',
+  sapporo: '北海道地方の予報を反映',
+  fukuoka: '九州地方の予報を反映',
+}
+
 export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps) {
   const [notificationLeadMinutes, setNotificationLeadMinutes] = useState(
     settings.notificationLeadMinutes,
@@ -58,6 +79,9 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
     settings.preferredViewMode,
   )
   const [colorTheme, setColorTheme] = useState<ColorTheme>(settings.colorTheme)
+  const [weatherRegion, setWeatherRegion] = useState<WeatherRegion>(
+    settings.weatherRegion,
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -69,6 +93,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
         notificationLeadMinutes,
         preferredViewMode,
         colorTheme,
+        weatherRegion,
       })
       onClose()
     } catch (saveError: unknown) {
@@ -87,7 +112,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
           <div>
             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">設定</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              通知・既定表示・テーマをカスタマイズできます。
+              通知・既定表示・テーマ・天気地域をカスタマイズできます。
             </p>
           </div>
           <button
@@ -186,6 +211,37 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                     </p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       {colorThemeDescriptionMap[option]}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              天気の地域
+            </h3>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {weatherRegions.map((option) => {
+                const selected = option === weatherRegion
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    className={[
+                      'rounded-lg border p-2 text-left transition',
+                      selected
+                        ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-400 dark:border-sky-500 dark:bg-sky-900/20'
+                        : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
+                    ].join(' ')}
+                    onClick={() => setWeatherRegion(option)}
+                  >
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {weatherRegionLabelMap[option]}
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {weatherRegionDescriptionMap[option]}
                     </p>
                   </button>
                 )

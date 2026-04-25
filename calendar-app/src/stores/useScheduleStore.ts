@@ -6,17 +6,22 @@ import {
   type AppSettings,
   type AppSettingsInput,
 } from '../../shared/types/settings'
+import type { DailyWeather, WeatherRangeInput } from '../../shared/types/weather'
 import { sortSchedules } from '../../shared/utils/schedule'
 
 interface ScheduleState {
   schedules: Schedule[]
   settings: AppSettings
+  weatherByDate: Record<string, DailyWeather>
   selectedDateKey: string
   editingId: ScheduleId | null
   loading: boolean
   error: string | null
+  weatherLoading: boolean
+  weatherError: string | null
   loadSchedules: () => Promise<void>
   loadSettings: () => Promise<void>
+  loadWeatherRange: (input: WeatherRangeInput) => Promise<void>
   saveSchedule: (input: ScheduleInput) => Promise<void>
   deleteSchedule: (id: ScheduleId) => Promise<void>
   saveSettings: (input: AppSettingsInput) => Promise<void>
@@ -28,10 +33,13 @@ interface ScheduleState {
 export const useScheduleStore = create<ScheduleState>((set) => ({
   schedules: [],
   settings: defaultAppSettings,
+  weatherByDate: {},
   selectedDateKey: format(new Date(), 'yyyy-MM-dd'),
   editingId: null,
   loading: false,
   error: null,
+  weatherLoading: false,
+  weatherError: null,
 
   loadSchedules: async () => {
     set({ loading: true, error: null })
@@ -56,6 +64,29 @@ export const useScheduleStore = create<ScheduleState>((set) => ({
       const message =
         error instanceof Error ? error.message : '設定の読み込みに失敗しました。'
       set({ loading: false, error: message })
+    }
+  },
+
+  loadWeatherRange: async (input: WeatherRangeInput) => {
+    set({ weatherLoading: true, weatherError: null })
+    try {
+      const items = await window.api.getWeatherByRange(input)
+      set((state) => {
+        const nextWeatherByDate = { ...state.weatherByDate }
+        for (const item of items) {
+          nextWeatherByDate[item.date] = item
+        }
+        return {
+          weatherByDate: nextWeatherByDate,
+          weatherLoading: false,
+        }
+      })
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : '天気情報の取得に失敗しました。'
+      set({ weatherLoading: false, weatherError: message })
     }
   },
 
