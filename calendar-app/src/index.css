@@ -16,26 +16,178 @@
 body {
   margin: 0;
   min-height: 100vh;
+  transition: background-color 180ms ease, background-image 180ms ease;
+}
+
+body.theme-classic,
+body:not(.theme-white) {
   background:
-    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 40%),
-    radial-gradient(circle at 80% 0%, rgba(251, 191, 36, 0.18), transparent 35%),
-    #e2e8f0;
+    radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.22), transparent 40%),
+    radial-gradient(circle at 85% 0%, rgba(14, 165, 233, 0.18), transparent 35%),
+    #020617;
+}
+
+body.theme-white {
+  background: #f7f9fc;
+
+  --white-panel-bg: #ffffff;
+  --white-panel-border: #d9e2ef;
+  --white-surface-bg: #ffffff;
+  --white-surface-hover: #eef2f7;
+  --white-text-primary: #0f172a;
+  --white-text-secondary: #334155;
+  --white-text-muted: #64748b;
+  --white-text-subtle: #94a3b8;
+  --white-field-bg: #ffffff;
+  --white-field-border: #cdd8e6;
+  --white-field-disabled-bg: #f1f5f9;
+  --white-field-disabled-text: #94a3b8;
+  --white-button-bg: #f8fafc;
+  --white-button-border: #cdd8e6;
+  --white-button-text: #334155;
+  --white-panel-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  --white-danger-border: #fda4af;
+  --white-danger-bg: #fff1f2;
+  --white-danger-text: #be123c;
+  --white-warning-border: #fcd34d;
+  --white-warning-bg: #fffbeb;
+  --white-warning-text: #92400e;
 }
 
 #root {
   min-height: 100vh;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #e2e8f0;
-    background-color: #020617;
-  }
+body.theme-white .app-root {
+  color: var(--white-text-primary);
+}
 
-  body {
-    background:
-      radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.22), transparent 40%),
-      radial-gradient(circle at 85% 0%, rgba(14, 165, 233, 0.18), transparent 35%),
-      #020617;
-  }
+/* 白テーマは既存のTailwindクラスを正確に上書きする。
+   部分一致セレクタを避けることで、将来のクラス追加時の巻き込みを減らす。 */
+body.theme-white .app-root .rounded-2xl.border {
+  background-color: var(--white-panel-bg);
+  border-color: var(--white-panel-border);
+  box-shadow: var(--white-panel-shadow);
+  backdrop-filter: none;
+}
+
+body.theme-white .app-root
+  :is(section, article, div, label).rounded-md.border:not(.border-amber-300):not(.border-rose-300) {
+  border-color: var(--white-panel-border);
+}
+
+body.theme-white
+  .app-root
+  :where(.text-slate-800, .text-slate-700, .dark\:text-slate-100, .dark\:text-slate-200) {
+  color: var(--white-text-primary);
+}
+
+body.theme-white .app-root :where(.text-slate-600, .dark\:text-slate-300) {
+  color: var(--white-text-secondary);
+}
+
+body.theme-white
+  .app-root
+  :where(.text-slate-500, .dark\:text-slate-400, .dark\:text-slate-500) {
+  color: var(--white-text-muted);
+}
+
+body.theme-white .app-root :where(.text-slate-400, .dark\:text-slate-600) {
+  color: var(--white-text-subtle);
+}
+
+body.theme-white
+  .app-root
+  :where(
+    .border-slate-200,
+    .border-slate-200\/80,
+    .border-slate-300,
+    .dark\:border-slate-700
+  ) {
+  border-color: var(--white-panel-border);
+}
+
+body.theme-white .app-root .dark\:border-white {
+  border-color: var(--white-text-primary);
+}
+
+body.theme-white
+  .app-root
+  :where(
+    .bg-white,
+    .bg-white\/95,
+    .bg-slate-50,
+    .bg-slate-100,
+    .dark\:bg-slate-900,
+    .dark\:bg-slate-900\/90,
+    .dark\:bg-slate-800,
+    .dark\:bg-slate-700
+  ) {
+  background-color: var(--white-surface-bg);
+}
+
+body.theme-white .app-root :where(.bg-slate-200, .dark\:bg-slate-700) {
+  background-color: var(--white-panel-border);
+}
+
+body.theme-white
+  .app-root
+  :where(.hover\:bg-slate-50, .hover\:bg-slate-100, .dark\:hover\:bg-slate-800):hover {
+  background-color: var(--white-surface-hover);
+}
+
+body.theme-white
+  .app-root
+  button:where(.border-slate-200, .border-slate-300, .dark\:border-slate-700) {
+  background-color: var(--white-button-bg);
+  border-color: var(--white-button-border);
+  color: var(--white-button-text);
+}
+
+body.theme-white
+  .app-root
+  button:where(.border-slate-200, .border-slate-300, .dark\:border-slate-700):hover {
+  background-color: var(--white-surface-hover);
+}
+
+body.theme-white
+  .app-root
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background-color: var(--white-field-bg);
+  border-color: var(--white-field-border);
+  color: var(--white-text-primary);
+}
+
+body.theme-white
+  .app-root
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):disabled {
+  background-color: var(--white-field-disabled-bg);
+  color: var(--white-field-disabled-text);
+  border-color: var(--white-field-border);
+}
+
+body.theme-white .app-root .dark\:border-rose-500\/60,
+body.theme-white .app-root .dark\:border-rose-500\/50 {
+  border-color: var(--white-danger-border);
+}
+
+body.theme-white .app-root .dark\:bg-rose-900\/20,
+body.theme-white .app-root .dark\:hover\:bg-rose-900\/30:hover {
+  background-color: var(--white-danger-bg);
+}
+
+body.theme-white .app-root :where(.dark\:text-rose-300, .dark\:text-rose-400) {
+  color: var(--white-danger-text);
+}
+
+body.theme-white .app-root .dark\:border-amber-500\/50 {
+  border-color: var(--white-warning-border);
+}
+
+body.theme-white .app-root .dark\:bg-amber-900\/20 {
+  background-color: var(--white-warning-bg);
+}
+
+body.theme-white .app-root .dark\:text-amber-300 {
+  color: var(--white-warning-text);
 }

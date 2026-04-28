@@ -6,30 +6,34 @@ import {
   getScheduleDisplayRange,
   toDateKey,
 } from '../utils/calendar'
-import type { Schedule, ScheduleColor } from '../../shared/types/schedule'
+import type {
+  ScheduleColor,
+  ScheduleOccurrence,
+} from '../../shared/types/schedule'
+import type { DailyWeather } from '../../shared/types/weather'
 
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
 const badgeClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-600 text-white',
+  yellow: 'bg-yellow-300 text-slate-900',
   sky: 'bg-sky-500 text-white',
   emerald: 'bg-emerald-500 text-white',
-  amber: 'bg-amber-400 text-slate-900',
+  amber: 'bg-orange-500 text-white',
   rose: 'bg-rose-500 text-white',
   violet: 'bg-violet-500 text-white',
 }
 const dotClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500',
+  yellow: 'bg-yellow-300',
   sky: 'bg-sky-500',
   emerald: 'bg-emerald-500',
-  amber: 'bg-amber-400',
+  amber: 'bg-orange-500',
   rose: 'bg-rose-500',
   violet: 'bg-violet-500',
 }
 const rangeBarClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500/80',
+  yellow: 'bg-yellow-300/80',
   sky: 'bg-sky-500/80',
   emerald: 'bg-emerald-500/80',
-  amber: 'bg-amber-400/80',
+  amber: 'bg-orange-500/80',
   rose: 'bg-rose-500/80',
   violet: 'bg-violet-500/80',
 }
@@ -37,13 +41,14 @@ const rangeBarClassMap: Record<ScheduleColor, string> = {
 interface CalendarViewProps {
   viewMonth: Date
   selectedDate: Date
-  schedulesByDate: Record<string, Schedule[]>
+  schedulesByDate: Record<string, ScheduleOccurrence[]>
+  weatherByDate: Record<string, DailyWeather>
   onChangeMonth: (nextMonth: Date) => void
   onSelectDate: (date: Date) => void
   onDateDoubleTap?: (date: Date) => void
 }
 
-function getDominantColor(schedules: Schedule[]): ScheduleColor {
+function getDominantColor(schedules: ScheduleOccurrence[]): ScheduleColor {
   const countMap = new Map<ScheduleColor, number>()
 
   for (const item of schedules) {
@@ -68,6 +73,7 @@ export function CalendarView({
   viewMonth,
   selectedDate,
   schedulesByDate,
+  weatherByDate,
   onChangeMonth,
   onSelectDate,
   onDateDoubleTap,
@@ -77,20 +83,19 @@ export function CalendarView({
   const rowCount = Math.ceil(days.length / 7)
   const isDenseMonth = rowCount >= 6
 
-  const handleDateTap = (date: Date, key: string): void => {
+  const handleDateTap = (date: Date, key: string, tapTimeMs: number): void => {
     onSelectDate(date)
     if (!onDateDoubleTap) {
       return
     }
 
-    const now = Date.now()
     const prev = lastTapRef.current
-    if (prev && prev.key === key && now - prev.time <= 320) {
+    if (prev && prev.key === key && tapTimeMs - prev.time <= 320) {
       onDateDoubleTap(date)
       lastTapRef.current = null
       return
     }
-    lastTapRef.current = { key, time: now }
+    lastTapRef.current = { key, time: tapTimeMs }
   }
 
   return (
@@ -139,6 +144,7 @@ export function CalendarView({
         {days.map((date) => {
           const key = toDateKey(date)
           const schedules = schedulesByDate[key] ?? []
+          const weather = weatherByDate[key] ?? null
           const multiDaySegments = schedules
             .map((schedule) => {
               const range = getScheduleDisplayRange(schedule)
@@ -174,27 +180,33 @@ export function CalendarView({
               key={key}
               type="button"
               className={[
-                'min-h-16 bg-white p-1.5 text-left transition-colors md:min-h-[4.5rem] md:p-2 lg:h-full lg:min-h-0',
+                'relative flex min-h-16 flex-col bg-white p-1.5 pt-9 text-left transition-colors md:min-h-[4.5rem] md:p-2 md:pt-10 lg:h-full lg:min-h-0',
                 'hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
                 inMonth
                   ? 'text-slate-800 dark:text-slate-100'
                   : 'text-slate-400 dark:text-slate-600',
                 selected ? 'ring-2 ring-sky-500 ring-inset' : '',
               ].join(' ')}
-              onClick={() => handleDateTap(date, key)}
+              onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
               <span
                 className={[
+                  'absolute left-1.5 top-1.5 inline-flex items-center justify-center rounded-full md:left-2 md:top-2',
                   isDenseMonth
-                    ? 'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium'
-                    : 'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
+                    ? 'h-6 w-6 text-xs font-medium'
+                    : 'h-7 w-7 text-sm font-medium',
                   today ? 'bg-sky-500 text-white' : '',
                 ].join(' ')}
               >
                 {format(date, 'd')}
               </span>
+              {weather && (
+                <span className="absolute right-1.5 top-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-sm leading-none text-slate-600 md:right-2 md:top-2 md:text-base dark:bg-slate-800 dark:text-slate-300">
+                  {weather.weatherShortLabel}
+                </span>
+              )}
               {schedules.length > 0 && (
-                <div className={isDenseMonth ? 'mt-1 space-y-0.5' : 'mt-1.5 space-y-1'}>
+                <div className={isDenseMonth ? 'space-y-0.5' : 'space-y-1'}>
                   <p
                     className={[
                       isDenseMonth

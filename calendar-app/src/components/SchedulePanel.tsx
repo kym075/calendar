@@ -10,52 +10,68 @@ import {
   startOfDay,
   subDays,
 } from 'date-fns'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type {
+  RecurrenceEndMode,
+  RecurrenceFrequency,
+  RecurrenceMonthlyMode,
   Schedule,
   ScheduleColor,
   ScheduleId,
   ScheduleInput,
+  ScheduleOccurrence,
+  ScheduleRecurrence,
 } from '../../shared/types/schedule'
 import {
+  defaultScheduleRecurrence,
+  recurrenceCountMax,
+  recurrenceCountMin,
+  scheduleColors,
   scheduleMemoMaxLength,
   scheduleTitleMaxLength,
 } from '../../shared/types/schedule'
+import type { DailyWeather } from '../../shared/types/weather'
 
 const colorClassMap: Record<ScheduleColor, string> = {
-  slate: 'bg-slate-500',
+  yellow: 'bg-yellow-300',
   sky: 'bg-sky-500',
   emerald: 'bg-emerald-500',
-  amber: 'bg-amber-500',
+  amber: 'bg-orange-500',
   rose: 'bg-rose-500',
   violet: 'bg-violet-500',
 }
 const colorLabelMap: Record<ScheduleColor, string> = {
-  slate: 'スレート',
-  sky: 'スカイ',
-  emerald: 'エメラルド',
-  amber: 'アンバー',
-  rose: 'ローズ',
-  violet: 'バイオレット',
+  yellow: 'イエロー',
+  sky: 'ブルー',
+  emerald: 'グリーン',
+  amber: 'オレンジ',
+  rose: 'レッド',
+  violet: 'パープル',
+}
+const recurrenceFrequencyLabelMap: Record<RecurrenceFrequency, string> = {
+  none: '繰り返さない',
+  daily: '毎日',
+  weekly: '毎週',
+  monthly: '毎月',
+}
+const recurrenceMonthlyModeLabelMap: Record<RecurrenceMonthlyMode, string> = {
+  date: '日付',
+  weekday: '曜日',
 }
 
-const colorOptions: ScheduleColor[] = [
-  'slate',
-  'sky',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-]
+const colorOptions: ScheduleColor[] = [...scheduleColors]
 
 interface SchedulePanelProps {
   selectedDate: Date
-  daySchedules: Schedule[]
+  daySchedules: ScheduleOccurrence[]
   editingSchedule: Schedule | null
   onSubmit: (input: ScheduleInput) => Promise<void>
   onDelete: (id: ScheduleId) => Promise<void>
   onStartEdit: (id: ScheduleId) => void
   onCancelEdit: () => void
+  selectedDateWeather: DailyWeather | null
+  weatherLoading: boolean
+  weatherError: string | null
   viewMode?: 'full' | 'list' | 'form'
   onRequestClose?: () => void
   className?: string
@@ -79,7 +95,7 @@ function toDateInput(isoText: string): string {
   return format(parseISO(isoText), 'yyyy-MM-dd')
 }
 
-function formatSchedulePeriod(schedule: Schedule): string {
+function formatSchedulePeriod(schedule: ScheduleOccurrence): string {
   const start = parseISO(schedule.startAt)
   const end = parseISO(schedule.endAt)
   if (schedule.allDay) {
@@ -95,6 +111,249 @@ function formatSchedulePeriod(schedule: Schedule): string {
   return `${format(start, 'M/d HH:mm')} - ${format(end, 'M/d HH:mm')}`
 }
 
+function formatRecurrenceLabel(schedule: ScheduleOccurrence): string {
+  const recurrence = schedule.recurrence
+  if (recurrence.frequency === 'none') {
+    return '単発'
+  }
+  const frequencyLabel =
+    recurrence.frequency === 'monthly'
+      ? `${recurrenceFrequencyLabelMap.monthly}（${
+          recurrenceMonthlyModeLabelMap[recurrence.monthlyMode ?? 'date']
+        }）`
+      : recurrenceFrequencyLabelMap[recurrence.frequency]
+  if (recurrence.endMode === 'onDate' && recurrence.untilDate) {
+    return `${frequencyLabel} (${recurrence.untilDate}まで)`
+  }
+  if (recurrence.endMode === 'afterCount' && recurrence.count !== null) {
+    return `${frequencyLabel} (${recurrence.count}回)`
+  }
+  return `${frequencyLabel} (無期限)`
+}
+
+interface FormInitialValues {
+  title: string
+  startDate: string
+  startTime: string
+  endDate: string
+  endTime: string
+  allDay: boolean
+  memo: string
+  color: ScheduleColor
+  recurrenceFrequency: RecurrenceFrequency
+  recurrenceMonthlyMode: RecurrenceMonthlyMode
+  recurrenceEndMode: RecurrenceEndMode
+  recurrenceUntilDate: string
+  recurrenceCount: string
+}
+
+function createFormInitialValues(
+  selectedDate: Date,
+  editingSchedule: Schedule | null,
+): FormInitialValues {
+  if (!editingSchedule) {
+    return {
+      title: '',
+      startDate: format(selectedDate, 'yyyy-MM-dd'),
+      startTime: '09:00',
+      endDate: format(selectedDate, 'yyyy-MM-dd'),
+      endTime: '10:00',
+      allDay: false,
+      memo: '',
+      color: 'sky',
+      recurrenceFrequency: 'none',
+      recurrenceMonthlyMode: 'date',
+      recurrenceEndMode: 'never',
+      recurrenceUntilDate: format(selectedDate, 'yyyy-MM-dd'),
+      recurrenceCount: '10',
+    }
+  }
+
+  const end = parseISO(editingSchedule.endAt)
+  const recurrence = editingSchedule.recurrence ?? defaultScheduleRecurrence
+  return {
+    title: editingSchedule.title,
+    startDate: toDateInput(editingSchedule.startAt),
+    startTime: editingSchedule.allDay ? '09:00' : toTimeInput(editingSchedule.startAt),
+    endDate: editingSchedule.allDay
+      ? format(subDays(end, 1), 'yyyy-MM-dd')
+      : toDateInput(editingSchedule.endAt),
+    endTime: editingSchedule.allDay ? '10:00' : toTimeInput(editingSchedule.endAt),
+    allDay: editingSchedule.allDay,
+    memo: editingSchedule.memo,
+    color: editingSchedule.color,
+    recurrenceFrequency: recurrence.frequency,
+    recurrenceMonthlyMode: recurrence.monthlyMode ?? 'date',
+    recurrenceEndMode: recurrence.endMode,
+    recurrenceUntilDate: recurrence.untilDate ?? toDateInput(editingSchedule.startAt),
+    recurrenceCount:
+      recurrence.count !== null ? String(recurrence.count) : '10',
+  }
+}
+
+function buildRecurrenceFromForm(
+  recurrenceFrequency: RecurrenceFrequency,
+  recurrenceMonthlyMode: RecurrenceMonthlyMode,
+  recurrenceEndMode: RecurrenceEndMode,
+  recurrenceUntilDate: string,
+  recurrenceCount: string,
+  selectedDate: Date,
+  startAt: Date,
+): { recurrence: ScheduleRecurrence | null; error: string | null } {
+  if (recurrenceFrequency === 'none') {
+    return { recurrence: defaultScheduleRecurrence, error: null }
+  }
+  const monthlyMode =
+    recurrenceFrequency === 'monthly' ? recurrenceMonthlyMode : null
+
+  if (recurrenceEndMode === 'onDate') {
+    const untilDay = parse(recurrenceUntilDate, 'yyyy-MM-dd', selectedDate)
+    if (!isValid(untilDay)) {
+      return { recurrence: null, error: '繰り返しの終了日を正しく入力してください。' }
+    }
+    if (isBefore(startOfDay(untilDay), startOfDay(startAt))) {
+      return { recurrence: null, error: '繰り返しの終了日は開始日以降にしてください。' }
+    }
+    return {
+      recurrence: {
+        frequency: recurrenceFrequency,
+        monthlyMode,
+        endMode: 'onDate',
+        untilDate: recurrenceUntilDate,
+        count: null,
+      },
+      error: null,
+    }
+  }
+
+  if (recurrenceEndMode === 'afterCount') {
+    const count = Number.parseInt(recurrenceCount, 10)
+    if (
+      !Number.isInteger(count) ||
+      count < recurrenceCountMin ||
+      count > recurrenceCountMax
+    ) {
+      return {
+        recurrence: null,
+        error: `繰り返し回数は${recurrenceCountMin}〜${recurrenceCountMax}で入力してください。`,
+      }
+    }
+    return {
+      recurrence: {
+        frequency: recurrenceFrequency,
+        monthlyMode,
+        endMode: 'afterCount',
+        untilDate: null,
+        count,
+      },
+      error: null,
+    }
+  }
+
+  return {
+    recurrence: {
+      frequency: recurrenceFrequency,
+      monthlyMode,
+      endMode: 'never',
+      untilDate: null,
+      count: null,
+    },
+    error: null,
+  }
+}
+
+interface OverlapWarningItem {
+  scheduleId: string
+  title: string
+  firstStartAt: string
+  count: number
+}
+
+function detectDayOverlapWarnings(daySchedules: ScheduleOccurrence[]): OverlapWarningItem[] {
+  if (daySchedules.length < 2) {
+    return []
+  }
+
+  const timedItems: Array<{
+    scheduleId: string
+    title: string
+    startAt: string
+    startMs: number
+    endMs: number
+  }> = []
+
+  for (const item of daySchedules) {
+    if (item.allDay) {
+      continue
+    }
+    const start = parseISO(item.startAt)
+    const end = parseISO(item.endAt)
+    if (!isValid(start) || !isValid(end)) {
+      continue
+    }
+    if (!isSameDay(start, end)) {
+      continue
+    }
+    if (!isBefore(start, end)) {
+      continue
+    }
+
+    timedItems.push({
+      scheduleId: item.scheduleId,
+      title: item.title,
+      startAt: item.startAt,
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+    })
+  }
+
+  if (timedItems.length < 2) {
+    return []
+  }
+
+  const warningMap = new Map<string, OverlapWarningItem>()
+  const upsertWarning = (item: (typeof timedItems)[number]): void => {
+    const prev = warningMap.get(item.scheduleId)
+    if (!prev) {
+      warningMap.set(item.scheduleId, {
+        scheduleId: item.scheduleId,
+        title: item.title,
+        firstStartAt: item.startAt,
+        count: 1,
+      })
+      return
+    }
+
+    prev.count += 1
+    if (item.startMs < parseISO(prev.firstStartAt).getTime()) {
+      prev.firstStartAt = item.startAt
+    }
+  }
+
+  for (let i = 0; i < timedItems.length - 1; i += 1) {
+    const current = timedItems[i]
+    for (let j = i + 1; j < timedItems.length; j += 1) {
+      const candidate = timedItems[j]
+      if (current.startMs < candidate.endMs && current.endMs > candidate.startMs) {
+        upsertWarning(current)
+        upsertWarning(candidate)
+      }
+    }
+  }
+
+  return [...warningMap.values()].sort(
+    (a, b) =>
+      parseISO(a.firstStartAt).getTime() - parseISO(b.firstStartAt).getTime(),
+  )
+}
+
+function formatWeatherSummary(item: DailyWeather): string {
+  if (item.temperatureMaxC !== null && item.temperatureMinC !== null) {
+    return `${item.weatherLabel} ${item.temperatureMaxC}/${item.temperatureMinC}℃`
+  }
+  return item.weatherLabel
+}
+
 export function SchedulePanel({
   selectedDate,
   daySchedules,
@@ -103,6 +362,9 @@ export function SchedulePanel({
   onDelete,
   onStartEdit,
   onCancelEdit,
+  selectedDateWeather,
+  weatherLoading,
+  weatherError,
   viewMode = 'full',
   onRequestClose,
   className = '',
@@ -111,45 +373,41 @@ export function SchedulePanel({
   const showList = viewMode !== 'form'
   const showPrimaryAction = viewMode !== 'list'
 
-  const [title, setTitle] = useState('')
-  const [startDate, setStartDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
-  const [startTime, setStartTime] = useState('09:00')
-  const [endDate, setEndDate] = useState(() => format(selectedDate, 'yyyy-MM-dd'))
-  const [endTime, setEndTime] = useState('10:00')
-  const [allDay, setAllDay] = useState(false)
-  const [memo, setMemo] = useState('')
-  const [color, setColor] = useState<ScheduleColor>('sky')
+  const initialFormValues = createFormInitialValues(selectedDate, editingSchedule)
+  const [title, setTitle] = useState(initialFormValues.title)
+  const [startDate, setStartDate] = useState(initialFormValues.startDate)
+  const [startTime, setStartTime] = useState(initialFormValues.startTime)
+  const [endDate, setEndDate] = useState(initialFormValues.endDate)
+  const [endTime, setEndTime] = useState(initialFormValues.endTime)
+  const [allDay, setAllDay] = useState(initialFormValues.allDay)
+  const [memo, setMemo] = useState(initialFormValues.memo)
+  const [color, setColor] = useState<ScheduleColor>(initialFormValues.color)
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>(
+    initialFormValues.recurrenceFrequency,
+  )
+  const [recurrenceMonthlyMode, setRecurrenceMonthlyMode] =
+    useState<RecurrenceMonthlyMode>(initialFormValues.recurrenceMonthlyMode)
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<RecurrenceEndMode>(
+    initialFormValues.recurrenceEndMode,
+  )
+  const [recurrenceUntilDate, setRecurrenceUntilDate] = useState(
+    initialFormValues.recurrenceUntilDate,
+  )
+  const [recurrenceCount, setRecurrenceCount] = useState(
+    initialFormValues.recurrenceCount,
+  )
   const [formError, setFormError] = useState<string | null>(null)
+  const overlapWarnings = useMemo(
+    () => detectDayOverlapWarnings(daySchedules),
+    [daySchedules],
+  )
 
-  useEffect(() => {
-    if (editingSchedule) {
-      const end = parseISO(editingSchedule.endAt)
-      setTitle(editingSchedule.title)
-      setStartDate(toDateInput(editingSchedule.startAt))
-      setEndDate(
-        editingSchedule.allDay
-          ? format(subDays(end, 1), 'yyyy-MM-dd')
-          : toDateInput(editingSchedule.endAt),
-      )
-      setStartTime(editingSchedule.allDay ? '09:00' : toTimeInput(editingSchedule.startAt))
-      setEndTime(editingSchedule.allDay ? '10:00' : toTimeInput(editingSchedule.endAt))
-      setAllDay(editingSchedule.allDay)
-      setMemo(editingSchedule.memo)
-      setColor(editingSchedule.color)
-      setFormError(null)
-      return
+  const handleStartDateChange = (nextStartDate: string): void => {
+    setStartDate(nextStartDate)
+    if (recurrenceEndMode === 'onDate' && recurrenceUntilDate < nextStartDate) {
+      setRecurrenceUntilDate(nextStartDate)
     }
-
-    setTitle('')
-    setStartDate(format(selectedDate, 'yyyy-MM-dd'))
-    setStartTime('09:00')
-    setEndDate(format(selectedDate, 'yyyy-MM-dd'))
-    setEndTime('10:00')
-    setAllDay(false)
-    setMemo('')
-    setColor('sky')
-    setFormError(null)
-  }, [editingSchedule, selectedDate])
+  }
 
   const handleSubmit = async (): Promise<void> => {
     setFormError(null)
@@ -207,6 +465,21 @@ export function SchedulePanel({
       }
     }
 
+    const recurrenceResult = buildRecurrenceFromForm(
+      recurrenceFrequency,
+      recurrenceMonthlyMode,
+      recurrenceEndMode,
+      recurrenceUntilDate,
+      recurrenceCount,
+      selectedDate,
+      startAt,
+    )
+    if (!recurrenceResult.recurrence) {
+      setFormError(recurrenceResult.error ?? '繰り返し設定が不正です。')
+      return
+    }
+    const recurrence = recurrenceResult.recurrence
+
     await onSubmit({
       id: editingSchedule?.id,
       title: normalizedTitle,
@@ -215,6 +488,7 @@ export function SchedulePanel({
       allDay,
       memo: normalizedMemo,
       color,
+      recurrence,
     })
   }
 
@@ -228,9 +502,31 @@ export function SchedulePanel({
     >
       <header className="shrink-0 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
-            {format(selectedDate, 'M月d日')} の予定
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
+              {format(selectedDate, 'M月d日')} の予定
+            </h2>
+            {selectedDateWeather && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                天気: {formatWeatherSummary(selectedDateWeather)}
+              </p>
+            )}
+            {!selectedDateWeather && weatherLoading && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                天気情報を取得中...
+              </p>
+            )}
+            {!selectedDateWeather && !weatherLoading && weatherError && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                天気情報の取得に失敗しました
+              </p>
+            )}
+            {!selectedDateWeather && !weatherLoading && !weatherError && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                天気データなし
+              </p>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {showPrimaryAction && (
               <button
@@ -297,7 +593,7 @@ export function SchedulePanel({
               <input
                 type="date"
                 value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
+                onChange={(event) => handleStartDateChange(event.target.value)}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
             </div>
@@ -347,6 +643,123 @@ export function SchedulePanel({
             終日予定
           </label>
 
+          <div className="space-y-2 rounded-md border border-slate-300 px-3 py-2 dark:border-slate-700">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                繰り返し
+              </label>
+              <select
+                value={recurrenceFrequency}
+                onChange={(event) =>
+                  setRecurrenceFrequency(event.target.value as RecurrenceFrequency)
+                }
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="none">繰り返さない</option>
+                <option value="daily">毎日</option>
+                <option value="weekly">毎週</option>
+                <option value="monthly">毎月</option>
+              </select>
+            </div>
+
+            {recurrenceFrequency === 'monthly' && (
+              <div>
+                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                  毎月の基準
+                </label>
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 p-1 dark:border-slate-700">
+                  {(['date', 'weekday'] as RecurrenceMonthlyMode[]).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={[
+                        'rounded-md px-3 py-1.5 text-sm font-medium',
+                        recurrenceMonthlyMode === option
+                          ? 'bg-sky-600 text-white'
+                          : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+                      ].join(' ')}
+                      onClick={() => setRecurrenceMonthlyMode(option)}
+                      aria-pressed={recurrenceMonthlyMode === option}
+                    >
+                      {recurrenceMonthlyModeLabelMap[option]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {recurrenceFrequency !== 'none' && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                    終了条件
+                  </label>
+                  <select
+                    value={recurrenceEndMode}
+                    onChange={(event) =>
+                      setRecurrenceEndMode(event.target.value as RecurrenceEndMode)
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="never">なし（無期限）</option>
+                    <option value="onDate">終了日を指定</option>
+                    <option value="afterCount">回数を指定</option>
+                  </select>
+                </div>
+
+                {recurrenceEndMode === 'onDate' && (
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                      終了日
+                    </label>
+                    <input
+                      type="date"
+                      value={recurrenceUntilDate}
+                      onChange={(event) => setRecurrenceUntilDate(event.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                )}
+
+                {recurrenceEndMode === 'afterCount' && (
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                      回数
+                    </label>
+                    <input
+                      type="number"
+                      min={recurrenceCountMin}
+                      max={recurrenceCountMax}
+                      value={recurrenceCount}
+                      onChange={(event) => setRecurrenceCount(event.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {overlapWarnings.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/50 dark:bg-amber-900/20 dark:text-amber-300">
+              <p className="font-semibold">
+                時間が重なる予定があります（{overlapWarnings.length}件）
+              </p>
+              <p className="mt-0.5">保存は可能ですが、内容を確認してください。</p>
+              <ul className="mt-1 space-y-0.5">
+                {overlapWarnings.slice(0, 3).map((warning) => (
+                  <li key={warning.scheduleId}>
+                    {warning.title}（{format(parseISO(warning.firstStartAt), 'M/d HH:mm')}）
+                    {warning.count > 1 ? ` +${warning.count - 1}件` : ''}
+                  </li>
+                ))}
+              </ul>
+              {overlapWarnings.length > 3 && (
+                <p className="mt-0.5">ほか {overlapWarnings.length - 3} 件</p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
               メモ
@@ -374,7 +787,8 @@ export function SchedulePanel({
                   key={option}
                   type="button"
                   className={[
-                    'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold text-white transition',
+                    'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold transition',
+                    option === 'yellow' ? 'text-slate-900' : 'text-white',
                     colorClassMap[option],
                     color === option
                       ? 'scale-110 border-black/70 shadow-md dark:border-white'
@@ -424,6 +838,9 @@ export function SchedulePanel({
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {formatSchedulePeriod(item)}
                   </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatRecurrenceLabel(item)}
+                  </p>
                 </div>
                 <span
                   className={['mt-1 h-3 w-3 rounded-full', colorClassMap[item.color]].join(
@@ -440,14 +857,14 @@ export function SchedulePanel({
                 <button
                   type="button"
                   className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  onClick={() => onStartEdit(item.id)}
+                  onClick={() => onStartEdit(item.scheduleId)}
                 >
                   編集
                 </button>
                 <button
                   type="button"
                   className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/50 dark:text-rose-400 dark:hover:bg-rose-900/30"
-                  onClick={() => void onDelete(item.id)}
+                  onClick={() => void onDelete(item.scheduleId)}
                 >
                   削除
                 </button>

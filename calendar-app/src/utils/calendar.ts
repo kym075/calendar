@@ -1,23 +1,28 @@
 import {
   addDays,
   eachDayOfInterval,
+  endOfYear,
+  endOfDay,
   endOfMonth,
   endOfWeek,
   format,
   isValid,
   parseISO,
+  startOfYear,
   startOfMonth,
   startOfDay,
   startOfWeek,
   subMilliseconds,
 } from 'date-fns'
-import type { Schedule } from '../../shared/types/schedule'
+import type { Schedule, ScheduleOccurrence } from '../../shared/types/schedule'
+import { getScheduleOccurrencesForRange } from '../../shared/utils/schedule'
 
 export function toDateKey(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
 export function createMonthGrid(viewMonth: Date): Date[] {
+  // 月表示は前後の月の日付も含め、必ず日曜始まり・土曜終わりのグリッドにする。
   const start = startOfWeek(startOfMonth(viewMonth), { weekStartsOn: 0 })
   const end = endOfWeek(endOfMonth(viewMonth), { weekStartsOn: 0 })
 
@@ -28,6 +33,15 @@ export function createMonthGrid(viewMonth: Date): Date[] {
   return dates
 }
 
+export function createWeekGrid(viewDate: Date): Date[] {
+  const start = startOfWeek(viewDate, { weekStartsOn: 0 })
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index))
+}
+
+export function toMonthKey(date: Date): string {
+  return format(date, 'yyyy-MM')
+}
+
 interface ScheduleDisplayRange {
   startDay: Date
   endDay: Date
@@ -35,8 +49,9 @@ interface ScheduleDisplayRange {
 }
 
 export function getScheduleDisplayRange(
-  schedule: Schedule,
+  schedule: Pick<ScheduleOccurrence, 'startAt' | 'endAt'>,
 ): ScheduleDisplayRange | null {
+  // 終了が 00:00 の終日予定は、画面上では前日までの予定として見せる。
   const startAt = parseISO(schedule.startAt)
   const endAt = parseISO(schedule.endAt)
   if (!isValid(startAt) || !isValid(endAt)) {
@@ -61,11 +76,21 @@ export function getScheduleDisplayRange(
   }
 }
 
-export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> {
-  const map: Record<string, Schedule[]> = {}
+export function buildScheduleMap(
+  items: Schedule[],
+  rangeStart: Date,
+  rangeEnd: Date,
+): Record<string, ScheduleOccurrence[]> {
+  // カレンダーの各日付キーに、その日に表示する予定をまとめる。
+  const map: Record<string, ScheduleOccurrence[]> = {}
+  const occurrences = getScheduleOccurrencesForRange(
+    items,
+    startOfDay(rangeStart),
+    endOfDay(rangeEnd),
+  )
 
-  for (const schedule of items) {
-    const displayRange = getScheduleDisplayRange(schedule)
+  for (const occurrence of occurrences) {
+    const displayRange = getScheduleDisplayRange(occurrence)
     if (!displayRange) {
       continue
     }
@@ -80,7 +105,7 @@ export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> 
       if (!map[key]) {
         map[key] = []
       }
-      map[key].push(schedule)
+      map[key].push(occurrence)
     }
   }
 
@@ -88,6 +113,36 @@ export function buildScheduleMap(items: Schedule[]): Record<string, Schedule[]> 
     map[key].sort(
       (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
     )
+  }
+
+  return map
+}
+
+export function buildDayScheduleList(
+  items: Schedule[],
+  day: Date,
+): ScheduleOccurrence[] {
+  return getScheduleOccurrencesForRange(items, startOfDay(day), endOfDay(day))
+}
+
+export function buildYearMonthCountMap(
+  items: Schedule[],
+  yearDate: Date,
+): Record<string, number> {
+  const map: Record<string, number> = {}
+  const occurrences = getScheduleOccurrencesForRange(
+    items,
+    startOfYear(yearDate),
+    endOfYear(yearDate),
+  )
+
+  for (const occurrence of occurrences) {
+    const startAt = parseISO(occurrence.startAt)
+    if (!isValid(startAt)) {
+      continue
+    }
+    const key = toMonthKey(startAt)
+    map[key] = (map[key] ?? 0) + 1
   }
 
   return map
