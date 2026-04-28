@@ -180,7 +180,7 @@ export function CalendarView({
               key={key}
               type="button"
               className={[
-                'min-h-16 bg-white p-1.5 text-left transition-colors md:min-h-[4.5rem] md:p-2 lg:h-full lg:min-h-0',
+                'relative flex min-h-16 flex-col bg-white p-1.5 pt-9 text-left transition-colors md:min-h-[4.5rem] md:p-2 md:pt-10 lg:h-full lg:min-h-0',
                 'hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
                 inMonth
                   ? 'text-slate-800 dark:text-slate-100'
@@ -189,25 +189,24 @@ export function CalendarView({
               ].join(' ')}
               onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
-              <div className="flex items-start justify-between gap-1">
-                <span
-                  className={[
-                    isDenseMonth
-                      ? 'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium'
-                      : 'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
-                    today ? 'bg-sky-500 text-white' : '',
-                  ].join(' ')}
-                >
-                  {format(date, 'd')}
+              <span
+                className={[
+                  'absolute left-1.5 top-1.5 inline-flex items-center justify-center rounded-full md:left-2 md:top-2',
+                  isDenseMonth
+                    ? 'h-6 w-6 text-xs font-medium'
+                    : 'h-7 w-7 text-sm font-medium',
+                  today ? 'bg-sky-500 text-white' : '',
+                ].join(' ')}
+              >
+                {format(date, 'd')}
+              </span>
+              {weather && (
+                <span className="absolute right-1.5 top-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-sm leading-none text-slate-600 md:right-2 md:top-2 md:text-base dark:bg-slate-800 dark:text-slate-300">
+                  {weather.weatherShortLabel}
                 </span>
-                {weather && (
-                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {weather.weatherShortLabel}
-                  </span>
-                )}
-              </div>
+              )}
               {schedules.length > 0 && (
-                <div className={isDenseMonth ? 'mt-1 space-y-0.5' : 'mt-1.5 space-y-1'}>
+                <div className={isDenseMonth ? 'space-y-0.5' : 'space-y-1'}>
                   <p
                     className={[
                       isDenseMonth

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   addDays,
+  differenceInCalendarDays,
   format,
   isBefore,
   isValid,
@@ -29,6 +30,7 @@ import {
   defaultScheduleRecurrence,
   isRecurrenceEndMode,
   isRecurrenceFrequency,
+  isRecurrenceMonthlyMode,
   recurrenceCountMax,
   recurrenceCountMin,
   scheduleColors,
@@ -49,15 +51,20 @@ import type { DailyWeather, WeatherRangeInput } from '../shared/types/weather'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const MINUTE_MS = 60 * 1000
+
+// 通知タイマーは Electron の main process で管理する。
 const MAX_SET_TIMEOUT_MS = 2_147_483_647
+const NOTIFICATION_MISSED_GRACE_MS = 5 * MINUTE_MS
 const STARTUP_ARG = '--startup'
 const APP_DISPLAY_NAME = 'Toki'
+const APP_USER_MODEL_ID = 'com.personal.calendarapp'
 interface WeatherLocation {
   latitude: number
   longitude: number
   timezone: string
 }
 
+// 天気APIへ渡す地域情報。UIの地域選択と同じキーで管理する。
 const WEATHER_LOCATIONS: Record<WeatherRegion, WeatherLocation> = {
   nagoya: { latitude: 35.18147, longitude: 136.90641, timezone: 'Asia/Tokyo' },
   tokyo: { latitude: 35.681236, longitude: 139.767125, timezone: 'Asia/Tokyo' },
@@ -68,22 +75,44 @@ const WEATHER_LOCATIONS: Record<WeatherRegion, WeatherLocation> = {
 const WEATHER_CACHE_MS = 15 * MINUTE_MS
 const WEATHER_REQUEST_TIMEOUT_MS = 10_000
 const WEATHER_FORECAST_MAX_DAYS = 16
+const WEATHER_RANGE_MAX_DAYS = 370
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } =
   electron
 
 const colorSet = new Set<ScheduleColor>(scheduleColors)
 const isStartupLaunch = process.argv.includes(STARTUP_ARG)
 
+// 二重起動を防ぎ、2回目の起動では既存ウィンドウを前面に出す。
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID)
+}
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+}
+
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null
 let tray: InstanceType<typeof Tray> | null = null
 let appQuitting = false
+
+// ファイルから読み込んだデータを、起動中はメモリに保持しておく。
 let schedules: Schedule[] = []
 let appSettings: AppSettings = defaultAppSettings
+
+// 通知と天気は外部状態を持つため、重複実行しないよう Map/Set で管理する。
 const notificationTimers = new Map<ScheduleId, NodeJS.Timeout>()
+const shownNotificationKeys = new Set<string>()
 const weatherRangeCache = new Map<
   string,
   { expiresAt: number; items: DailyWeather[] }
 >()
+const weatherRangeRequests = new Map<string, Promise<DailyWeather[]>>()
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 function getScheduleFilePath(): string {
   return join(app.getPath('userData'), 'schedules.json')
@@ -94,6 +123,7 @@ function getSettingsFilePath(): string {
 }
 
 async function ensureScheduleFile(): Promise<void> {
+  // 初回起動時は保存先フォルダと空のJSONファイルを作る。
   const filePath = getScheduleFilePath()
   await mkdir(dirname(filePath), { recursive: true })
   if (!existsSync(filePath)) {
@@ -102,6 +132,7 @@ async function ensureScheduleFile(): Promise<void> {
 }
 
 async function ensureSettingsFile(): Promise<void> {
+  // 設定ファイルも初回起動時だけ既定値で作成する。
   const filePath = getSettingsFilePath()
   await mkdir(dirname(filePath), { recursive: true })
   if (!existsSync(filePath)) {
@@ -114,7 +145,7 @@ function isScheduleColor(value: unknown): value is ScheduleColor {
 }
 
 function normalizeScheduleColor(value: unknown): ScheduleColor | null {
-  // Backward compatibility: previously saved "slate" is mapped to yellow.
+  // 以前保存していた "slate" は現在の色候補にないため、yellowへ置き換える。
   if (value === 'slate') {
     return 'yellow'
   }
@@ -122,28 +153,33 @@ function normalizeScheduleColor(value: unknown): ScheduleColor | null {
 }
 
 function normalizeSettingsRecord(value: unknown): AppSettings {
-  if (typeof value !== 'object' || value === null) {
+  // 保存済みJSONが壊れていても、アプリが落ちないよう既定値へ戻す。
+  if (!isRecord(value)) {
     return defaultAppSettings
   }
 
-  const record = value as Record<string, unknown>
   return {
-    notificationLeadMinutes: isNotificationLeadMinutes(record.notificationLeadMinutes)
-      ? record.notificationLeadMinutes
+    notificationLeadMinutes: isNotificationLeadMinutes(value.notificationLeadMinutes)
+      ? value.notificationLeadMinutes
       : defaultAppSettings.notificationLeadMinutes,
-    preferredViewMode: isCalendarViewMode(record.preferredViewMode)
-      ? record.preferredViewMode
+    preferredViewMode: isCalendarViewMode(value.preferredViewMode)
+      ? value.preferredViewMode
       : defaultAppSettings.preferredViewMode,
-    colorTheme: isColorTheme(record.colorTheme)
-      ? record.colorTheme
+    colorTheme: isColorTheme(value.colorTheme)
+      ? value.colorTheme
       : defaultAppSettings.colorTheme,
-    weatherRegion: isWeatherRegion(record.weatherRegion)
-      ? record.weatherRegion
+    weatherRegion: isWeatherRegion(value.weatherRegion)
+      ? value.weatherRegion
       : defaultAppSettings.weatherRegion,
   }
 }
 
 function mergeSettings(input: AppSettingsInput): AppSettings {
+  // 部分更新を受け取り、指定されなかった項目は現在の設定を引き継ぐ。
+  if (!isRecord(input)) {
+    throw new Error('設定入力が不正です。')
+  }
+
   const nextLeadMinutes = input.notificationLeadMinutes
   const nextViewMode = input.preferredViewMode
   const nextColorTheme = input.colorTheme
@@ -194,25 +230,32 @@ function parseDateInput(value: string): Date | null {
 }
 
 function normalizeRecurrenceInput(value: unknown): ScheduleRecurrence {
-  if (typeof value !== 'object' || value === null) {
+  // 保存済みデータやIPC入力は unknown として扱い、使える形に整える。
+  if (!isRecord(value)) {
     return defaultScheduleRecurrence
   }
 
-  const record = value as Record<string, unknown>
-  if (!isRecurrenceFrequency(record.frequency)) {
+  if (!isRecurrenceFrequency(value.frequency)) {
     return defaultScheduleRecurrence
   }
-  if (record.frequency === 'none') {
+  if (value.frequency === 'none') {
     return defaultScheduleRecurrence
   }
 
-  const endMode = isRecurrenceEndMode(record.endMode) ? record.endMode : 'never'
-  const untilDate = typeof record.untilDate === 'string' ? record.untilDate : null
-  const count = Number.isInteger(record.count) ? Number(record.count) : null
+  const endMode = isRecurrenceEndMode(value.endMode) ? value.endMode : 'never'
+  const monthlyMode =
+    value.frequency === 'monthly' && isRecurrenceMonthlyMode(value.monthlyMode)
+      ? value.monthlyMode
+      : value.frequency === 'monthly'
+        ? 'date'
+        : null
+  const untilDate = typeof value.untilDate === 'string' ? value.untilDate : null
+  const count = Number.isInteger(value.count) ? Number(value.count) : null
 
   if (endMode === 'onDate') {
     return {
-      frequency: record.frequency,
+      frequency: value.frequency,
+      monthlyMode,
       endMode,
       untilDate,
       count: null,
@@ -221,7 +264,8 @@ function normalizeRecurrenceInput(value: unknown): ScheduleRecurrence {
 
   if (endMode === 'afterCount') {
     return {
-      frequency: record.frequency,
+      frequency: value.frequency,
+      monthlyMode,
       endMode,
       untilDate: null,
       count,
@@ -229,7 +273,8 @@ function normalizeRecurrenceInput(value: unknown): ScheduleRecurrence {
   }
 
   return {
-    frequency: record.frequency,
+    frequency: value.frequency,
+    monthlyMode,
     endMode: 'never',
     untilDate: null,
     count: null,
@@ -240,9 +285,12 @@ function validateRecurrenceInput(
   recurrence: ScheduleRecurrence,
   startAt: Date,
 ): ScheduleRecurrence {
+  // 繰り返し設定は保存前に終了日・回数の矛盾をチェックする。
   if (recurrence.frequency === 'none') {
     return defaultScheduleRecurrence
   }
+  const monthlyMode =
+    recurrence.frequency === 'monthly' ? recurrence.monthlyMode ?? 'date' : null
 
   if (recurrence.endMode === 'onDate') {
     if (!recurrence.untilDate) {
@@ -257,6 +305,7 @@ function validateRecurrenceInput(
     }
     return {
       frequency: recurrence.frequency,
+      monthlyMode,
       endMode: 'onDate',
       untilDate: recurrence.untilDate,
       count: null,
@@ -276,6 +325,7 @@ function validateRecurrenceInput(
     }
     return {
       frequency: recurrence.frequency,
+      monthlyMode,
       endMode: 'afterCount',
       untilDate: null,
       count: recurrence.count,
@@ -284,6 +334,7 @@ function validateRecurrenceInput(
 
   return {
     frequency: recurrence.frequency,
+    monthlyMode,
     endMode: 'never',
     untilDate: null,
     count: null,
@@ -291,27 +342,27 @@ function validateRecurrenceInput(
 }
 
 function toSchedule(value: unknown): Schedule | null {
-  if (typeof value !== 'object' || value === null) {
+  // ファイルから読んだ値は信用せず、必要な項目が揃うものだけ予定として扱う。
+  if (!isRecord(value)) {
     return null
   }
 
-  const record = value as Record<string, unknown>
-  const normalizedColor = normalizeScheduleColor(record.color)
+  const normalizedColor = normalizeScheduleColor(value.color)
   if (
-    typeof record.id !== 'string' ||
-    typeof record.title !== 'string' ||
-    typeof record.startAt !== 'string' ||
-    typeof record.endAt !== 'string' ||
-    typeof record.memo !== 'string' ||
+    typeof value.id !== 'string' ||
+    typeof value.title !== 'string' ||
+    typeof value.startAt !== 'string' ||
+    typeof value.endAt !== 'string' ||
+    typeof value.memo !== 'string' ||
     !normalizedColor ||
-    typeof record.createdAt !== 'string' ||
-    typeof record.updatedAt !== 'string'
+    typeof value.createdAt !== 'string' ||
+    typeof value.updatedAt !== 'string'
   ) {
     return null
   }
 
-  const parsedStartAt = parseISO(record.startAt)
-  const normalizedRecurrence = normalizeRecurrenceInput(record.recurrence)
+  const parsedStartAt = parseISO(value.startAt)
+  const normalizedRecurrence = normalizeRecurrenceInput(value.recurrence)
   const recurrence =
     isValid(parsedStartAt)
       ? (() => {
@@ -324,20 +375,21 @@ function toSchedule(value: unknown): Schedule | null {
       : defaultScheduleRecurrence
 
   return {
-    id: record.id,
-    title: record.title,
-    startAt: record.startAt,
-    endAt: record.endAt,
-    allDay: typeof record.allDay === 'boolean' ? record.allDay : false,
-    memo: record.memo,
+    id: value.id,
+    title: value.title,
+    startAt: value.startAt,
+    endAt: value.endAt,
+    allDay: typeof value.allDay === 'boolean' ? value.allDay : false,
+    memo: value.memo,
     color: normalizedColor,
     recurrence,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
   }
 }
 
 async function loadSchedulesFromDisk(): Promise<Schedule[]> {
+  // 壊れた予定データは読み飛ばし、アプリ起動を優先する。
   await ensureScheduleFile()
   const filePath = getScheduleFilePath()
   const text = await readFile(filePath, 'utf-8')
@@ -362,6 +414,7 @@ async function loadSchedulesFromDisk(): Promise<Schedule[]> {
 }
 
 async function loadSettingsFromDisk(): Promise<AppSettings> {
+  // 設定ファイルが壊れている場合は既定値で起動する。
   await ensureSettingsFile()
   const filePath = getSettingsFilePath()
   const text = await readFile(filePath, 'utf-8')
@@ -375,26 +428,61 @@ async function loadSettingsFromDisk(): Promise<AppSettings> {
 }
 
 async function saveSchedulesToDisk(items: Schedule[]): Promise<void> {
+  // 保存時も並び順をそろえ、JSONを読みやすい形で書き出す。
   const filePath = getScheduleFilePath()
   await writeFile(filePath, JSON.stringify(sortSchedules(items), null, 2), 'utf-8')
 }
 
 async function saveSettingsToDisk(settings: AppSettings): Promise<void> {
+  // 設定は1オブジェクトだけなので、そのままJSONへ保存する。
   const filePath = getSettingsFilePath()
   await writeFile(filePath, JSON.stringify(settings, null, 2), 'utf-8')
 }
 
 function validateScheduleInput(input: ScheduleInput): {
-  recurrence: ScheduleRecurrence
-  color: ScheduleColor
+  id: ScheduleId | null
+  item: {
+    title: string
+    startAt: string
+    endAt: string
+    allDay: boolean
+    memo: string
+    color: ScheduleColor
+    recurrence: ScheduleRecurrence
+  }
 } {
+  // renderer から来た値も実行時に検証してから保存する。
+  if (!isRecord(input)) {
+    throw new Error('予定入力が不正です。')
+  }
+
+  const id =
+    input.id === undefined
+      ? null
+      : typeof input.id === 'string' && input.id.length > 0
+        ? input.id
+        : null
+
+  if (input.id !== undefined && id === null) {
+    throw new Error('予定IDが不正です。')
+  }
+  if (typeof input.title !== 'string') {
+    throw new Error('タイトルが不正です。')
+  }
+  if (typeof input.memo !== 'string') {
+    throw new Error('メモが不正です。')
+  }
+  if (typeof input.startAt !== 'string' || typeof input.endAt !== 'string') {
+    throw new Error('日付形式が不正です。')
+  }
+  if (typeof input.allDay !== 'boolean') {
+    throw new Error('終日フラグが不正です。')
+  }
+
   const normalizedTitle = input.title.trim()
   const normalizedMemo = input.memo.trim()
   const normalizedColor = normalizeScheduleColor(input.color)
 
-  if (typeof input.allDay !== 'boolean') {
-    throw new Error('終日フラグが不正です。')
-  }
   if (normalizedTitle.length === 0) {
     throw new Error('タイトルは必須です。')
   }
@@ -419,19 +507,39 @@ function validateScheduleInput(input: ScheduleInput): {
 
   const recurrenceInput = normalizeRecurrenceInput(input.recurrence)
   return {
-    recurrence: validateRecurrenceInput(recurrenceInput, start),
-    color: normalizedColor,
+    id,
+    item: {
+      title: normalizedTitle,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      allDay: input.allDay,
+      memo: normalizedMemo,
+      color: normalizedColor,
+      recurrence: validateRecurrenceInput(recurrenceInput, start),
+    },
   }
 }
 
 function clearNotificationTimers(): void {
+  // 予定や通知設定が変わったら、古い通知予約をすべて作り直す。
   for (const timeout of notificationTimers.values()) {
     clearTimeout(timeout)
   }
   notificationTimers.clear()
 }
 
-function showNotification(occurrence: Pick<ScheduleOccurrence, 'title' | 'startAt'>): void {
+function getNotificationKey(
+  occurrence: Pick<ScheduleOccurrence, 'scheduleId' | 'occurrenceIndex' | 'startAt'>,
+): string {
+  return `${occurrence.scheduleId}:${occurrence.occurrenceIndex}:${occurrence.startAt}`
+}
+
+function showNotification(occurrence: ScheduleOccurrence): void {
+  // 同じ予定の同じ回に対して、通知を二重表示しない。
+  const key = getNotificationKey(occurrence)
+  if (shownNotificationKeys.has(key)) {
+    return
+  }
   if (!Notification.isSupported()) {
     return
   }
@@ -442,13 +550,18 @@ function showNotification(occurrence: Pick<ScheduleOccurrence, 'title' | 'startA
   }
 
   const startLabel = format(start, 'HH:mm')
+  shownNotificationKeys.add(key)
   new Notification({
     title: `予定の${formatLeadLabel(appSettings.notificationLeadMinutes)}です`,
     body: `${occurrence.title} (${startLabel}開始)`,
   }).show()
 }
 
-function scheduleNextNotificationForSchedule(scheduleId: ScheduleId): void {
+function scheduleNextNotificationForSchedule(
+  scheduleId: ScheduleId,
+  threshold = new Date(Date.now() - NOTIFICATION_MISSED_GRACE_MS),
+): void {
+  // 通知後は同じ予定の次回発生分だけを探して、次のタイマーを張る。
   const latest = schedules.find((item) => item.id === scheduleId)
   if (!latest) {
     notificationTimers.delete(scheduleId)
@@ -456,7 +569,6 @@ function scheduleNextNotificationForSchedule(scheduleId: ScheduleId): void {
   }
 
   const leadMs = getNotificationLeadMs()
-  const threshold = new Date(Date.now() + leadMs)
   const nextOccurrence = findNextOccurrenceStartingAfter(latest, threshold)
   if (!nextOccurrence) {
     notificationTimers.delete(scheduleId)
@@ -476,10 +588,32 @@ function armNotificationTimer(
   occurrence: ScheduleOccurrence,
   notifyAtMs: number,
 ): void {
-  const remainingMs = notifyAtMs - Date.now()
+  // 実際に通知を出す時刻まで待ち、通知後に次回分を予約する。
+  const nowMs = Date.now()
+  const start = parseISO(occurrence.startAt)
+  if (!isValid(start)) {
+    return
+  }
+
+  const scheduleNextAfterThisOccurrence = (): void => {
+    scheduleNextNotificationForSchedule(
+      occurrence.scheduleId,
+      new Date(start.getTime() + 1),
+    )
+  }
+
+  const remainingMs = notifyAtMs - nowMs
   if (remainingMs <= 0) {
+    if (
+      start.getTime() <= nowMs &&
+      nowMs - start.getTime() > NOTIFICATION_MISSED_GRACE_MS
+    ) {
+      scheduleNextAfterThisOccurrence()
+      return
+    }
+
     showNotification(occurrence)
-    scheduleNextNotificationForSchedule(occurrence.scheduleId)
+    scheduleNextAfterThisOccurrence()
     return
   }
 
@@ -491,16 +625,16 @@ function armNotificationTimer(
       return
     }
     showNotification(occurrence)
-    scheduleNextNotificationForSchedule(occurrence.scheduleId)
+    scheduleNextAfterThisOccurrence()
   }, nextDelay)
 
   notificationTimers.set(occurrence.scheduleId, timeout)
 }
 
 function scheduleUpcomingNotifications(): void {
+  // 起動時・予定変更時・通知設定変更時に、全予定の次回通知を再計算する。
   clearNotificationTimers()
-  const leadMs = getNotificationLeadMs()
-  const threshold = new Date(Date.now() + leadMs)
+  const threshold = new Date(Date.now() - NOTIFICATION_MISSED_GRACE_MS)
 
   for (const schedule of schedules) {
     const nextOccurrence = findNextOccurrenceStartingAfter(schedule, threshold)
@@ -511,12 +645,56 @@ function scheduleUpcomingNotifications(): void {
     if (!isValid(start)) {
       continue
     }
-    armNotificationTimer(nextOccurrence, start.getTime() - leadMs)
+    const notifyAtMs = start.getTime() - getNotificationLeadMs()
+    armNotificationTimer(nextOccurrence, notifyAtMs)
   }
 }
 
 function toDateKey(date: Date): string {
   return format(date, 'yyyy-MM-dd')
+}
+
+function pruneExpiredWeatherCache(nowMs = Date.now()): void {
+  // 期限切れキャッシュを削除し、長時間起動時に Map が増え続けるのを防ぐ。
+  for (const [key, value] of weatherRangeCache) {
+    if (value.expiresAt <= nowMs) {
+      weatherRangeCache.delete(key)
+    }
+  }
+}
+
+function validateWeatherRangeInput(input: WeatherRangeInput): {
+  startDate: string
+  endDate: string
+  startDay: Date
+  endDay: Date
+} {
+  // renderer からの入力で広すぎる期間を要求されないよう制限する。
+  if (!isRecord(input)) {
+    throw new Error('天気取得の入力が不正です。')
+  }
+  if (typeof input.startDate !== 'string' || typeof input.endDate !== 'string') {
+    throw new Error('天気取得の日付形式が不正です。')
+  }
+
+  const startDay = parseDateInput(input.startDate)
+  const endDay = parseDateInput(input.endDate)
+  if (!startDay || !endDay) {
+    throw new Error('天気取得の日付形式が不正です。')
+  }
+  if (startDay.getTime() > endDay.getTime()) {
+    throw new Error('天気取得の期間指定が不正です。')
+  }
+  if (differenceInCalendarDays(endDay, startDay) + 1 > WEATHER_RANGE_MAX_DAYS) {
+    throw new Error(`天気取得は${WEATHER_RANGE_MAX_DAYS}日以内で指定してください。`)
+  }
+
+  return {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    startDay,
+    endDay,
+  }
 }
 
 function getCurrentWeatherLocation(): WeatherLocation {
@@ -527,6 +705,7 @@ function getWeatherLabels(weatherCode: number): {
   weatherLabel: string
   weatherShortLabel: string
 } {
+  // Open-Meteo の weather_code を、画面に出す短い表示へ変換する。
   if (weatherCode === 0) {
     return { weatherLabel: '☀️', weatherShortLabel: '☀️' }
   }
@@ -558,6 +737,7 @@ function getWeatherLabels(weatherCode: number): {
 }
 
 async function fetchJsonWithTimeout(url: string): Promise<unknown> {
+  // 外部APIが返ってこない場合でも、10秒で処理を中断してUIへエラーを返す。
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), WEATHER_REQUEST_TIMEOUT_MS)
 
@@ -582,16 +762,16 @@ async function fetchJsonWithTimeout(url: string): Promise<unknown> {
 }
 
 function toDailyWeatherList(value: unknown): DailyWeather[] {
-  if (typeof value !== 'object' || value === null) {
+  // APIレスポンスの配列長や型が想定外でも、使える日付だけを取り出す。
+  if (!isRecord(value)) {
     return []
   }
 
-  const record = value as Record<string, unknown>
-  if (typeof record.daily !== 'object' || record.daily === null) {
+  if (!isRecord(value.daily)) {
     return []
   }
 
-  const daily = record.daily as Record<string, unknown>
+  const daily = value.daily
   const dateList = Array.isArray(daily.time) ? daily.time : []
   const weatherCodeList = Array.isArray(daily.weather_code) ? daily.weather_code : []
   const maxTempList = Array.isArray(daily.temperature_2m_max)
@@ -644,6 +824,7 @@ async function fetchArchiveWeather(
   startDate: string,
   endDate: string,
 ): Promise<DailyWeather[]> {
+  // 昨日以前は archive API から取得する。
   const url = new URL('https://archive-api.open-meteo.com/v1/archive')
   url.searchParams.set('latitude', String(location.latitude))
   url.searchParams.set('longitude', String(location.longitude))
@@ -664,6 +845,7 @@ async function fetchForecastWeather(
   startDate: string,
   endDate: string,
 ): Promise<DailyWeather[]> {
+  // 今日以降は forecast API から取得する。
   const url = new URL('https://api.open-meteo.com/v1/forecast')
   url.searchParams.set('latitude', String(location.latitude))
   url.searchParams.set('longitude', String(location.longitude))
@@ -682,76 +864,92 @@ async function fetchForecastWeather(
 async function listDailyWeatherByRange(
   input: WeatherRangeInput,
 ): Promise<DailyWeather[]> {
-  const startDay = parseDateInput(input.startDate)
-  const endDay = parseDateInput(input.endDate)
-  if (!startDay || !endDay) {
-    throw new Error('天気取得の日付形式が不正です。')
-  }
-  if (startDay.getTime() > endDay.getTime()) {
-    throw new Error('天気取得の期間指定が不正です。')
-  }
+  // UIが必要としている表示範囲だけを、キャッシュ込みで取得する入口。
+  const { startDate, endDate, startDay, endDay } =
+    validateWeatherRangeInput(input)
 
   const location = getCurrentWeatherLocation()
-  const cacheKey = `${appSettings.weatherRegion}:${input.startDate}:${input.endDate}`
+  const cacheKey = `${appSettings.weatherRegion}:${startDate}:${endDate}`
+  pruneExpiredWeatherCache()
+
   const cached = weatherRangeCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.items
   }
 
-  const segmentTasks: Promise<DailyWeather[]>[] = []
-  const today = startOfDay(new Date())
-  const yesterday = addDays(today, -1)
-  const forecastLimit = addDays(today, WEATHER_FORECAST_MAX_DAYS - 1)
+  // 同じ範囲の取得が同時に来た場合は、同じ Promise を返してAPI通信を重複させない。
+  const pending = weatherRangeRequests.get(cacheKey)
+  if (pending) {
+    return pending
+  }
 
-  if (startDay.getTime() <= yesterday.getTime()) {
-    const pastEnd =
-      endDay.getTime() <= yesterday.getTime() ? endDay : yesterday
-    segmentTasks.push(
-      fetchArchiveWeather(location, toDateKey(startDay), toDateKey(pastEnd)),
+  const request = (async (): Promise<DailyWeather[]> => {
+    const segmentTasks: Promise<DailyWeather[]>[] = []
+    const today = startOfDay(new Date())
+    const yesterday = addDays(today, -1)
+    const forecastLimit = addDays(today, WEATHER_FORECAST_MAX_DAYS - 1)
+
+    // Open-Meteo は過去用と予報用でURLが違うため、必要な範囲だけ分割する。
+    if (startDay.getTime() <= yesterday.getTime()) {
+      const pastEnd =
+        endDay.getTime() <= yesterday.getTime() ? endDay : yesterday
+      segmentTasks.push(
+        fetchArchiveWeather(location, toDateKey(startDay), toDateKey(pastEnd)),
+      )
+    }
+
+    if (endDay.getTime() >= today.getTime()) {
+      const futureStart =
+        startDay.getTime() >= today.getTime() ? startDay : today
+      if (futureStart.getTime() <= forecastLimit.getTime()) {
+        const futureEnd =
+          endDay.getTime() <= forecastLimit.getTime() ? endDay : forecastLimit
+        if (futureStart.getTime() <= futureEnd.getTime()) {
+          segmentTasks.push(
+            fetchForecastWeather(
+              location,
+              toDateKey(futureStart),
+              toDateKey(futureEnd),
+            ),
+          )
+        }
+      }
+    }
+
+    if (segmentTasks.length === 0) {
+      return []
+    }
+
+    const segmentResults = await Promise.all(segmentTasks)
+    const byDate = new Map<string, DailyWeather>()
+    for (const segment of segmentResults) {
+      for (const item of segment) {
+        if (item.date >= startDate && item.date <= endDate) {
+          byDate.set(item.date, item)
+        }
+      }
+    }
+
+    const items = [...byDate.values()].sort((a, b) =>
+      a.date.localeCompare(b.date),
     )
-  }
+    weatherRangeCache.set(cacheKey, {
+      expiresAt: Date.now() + WEATHER_CACHE_MS,
+      items,
+    })
+    return items
+  })()
 
-  if (endDay.getTime() >= today.getTime()) {
-    const futureStart =
-      startDay.getTime() >= today.getTime() ? startDay : today
-    if (futureStart.getTime() <= forecastLimit.getTime()) {
-      const futureEnd =
-        endDay.getTime() <= forecastLimit.getTime() ? endDay : forecastLimit
-      if (futureStart.getTime() <= futureEnd.getTime()) {
-        segmentTasks.push(
-          fetchForecastWeather(
-            location,
-            toDateKey(futureStart),
-            toDateKey(futureEnd),
-          ),
-        )
-      }
-    }
+  weatherRangeRequests.set(cacheKey, request)
+  try {
+    return await request
+  } finally {
+    weatherRangeRequests.delete(cacheKey)
   }
-
-  if (segmentTasks.length === 0) {
-    return []
-  }
-
-  const segmentResults = await Promise.all(segmentTasks)
-  const byDate = new Map<string, DailyWeather>()
-  for (const segment of segmentResults) {
-    for (const item of segment) {
-      if (item.date >= input.startDate && item.date <= input.endDate) {
-        byDate.set(item.date, item)
-      }
-    }
-  }
-
-  const items = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
-  weatherRangeCache.set(cacheKey, {
-    expiresAt: Date.now() + WEATHER_CACHE_MS,
-    items,
-  })
-  return items
 }
 
 function configureAutoLaunch(): void {
+  // 配布版のWindowsアプリだけ、ログイン時にバックグラウンド起動する。
   if (!app.isPackaged || process.platform !== 'win32') {
     return
   }
@@ -764,6 +962,7 @@ function configureAutoLaunch(): void {
 }
 
 function getPackagedAssetPath(...parts: string[]): string {
+  // 開発中と配布版で、アイコンなどの配置場所が違うため吸収する。
   if (app.isPackaged) {
     return join(process.resourcesPath, 'app.asar', ...parts)
   }
@@ -771,33 +970,24 @@ function getPackagedAssetPath(...parts: string[]): string {
 }
 
 async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
-  const { recurrence, color } = validateScheduleInput(input)
+  // id があれば更新、なければ新規作成として保存する。
+  const { id, item: nextItem } = validateScheduleInput(input)
   const nowIso = new Date().toISOString()
 
-  const nextItem = {
-    title: input.title.trim(),
-    startAt: input.startAt,
-    endAt: input.endAt,
-    allDay: input.allDay,
-    memo: input.memo.trim(),
-    color,
-    recurrence,
-  }
-
-  if (input.id) {
-    const existing = schedules.find((item) => item.id === input.id)
+  if (id) {
+    const existing = schedules.find((item) => item.id === id)
     if (existing) {
       const updated: Schedule = {
         ...existing,
         ...nextItem,
         updatedAt: nowIso,
       }
-      schedules = schedules.map((item) => (item.id === input.id ? updated : item))
+      schedules = schedules.map((item) => (item.id === id ? updated : item))
     } else {
       schedules = [
         ...schedules,
         {
-          id: input.id,
+          id,
           ...nextItem,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -823,6 +1013,7 @@ async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
 }
 
 async function removeSchedule(id: ScheduleId): Promise<Schedule[]> {
+  // 削除後は保存ファイルと通知予約を同期させる。
   schedules = schedules.filter((item) => item.id !== id)
   await saveSchedulesToDisk(schedules)
   scheduleUpcomingNotifications()
@@ -830,6 +1021,7 @@ async function removeSchedule(id: ScheduleId): Promise<Schedule[]> {
 }
 
 async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
+  // 設定変更後は通知タイミングや天気地域に関係する状態も更新する。
   const nextSettings = mergeSettings(input)
   const weatherRegionChanged =
     nextSettings.weatherRegion !== appSettings.weatherRegion
@@ -837,12 +1029,14 @@ async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
   await saveSettingsToDisk(nextSettings)
   if (weatherRegionChanged) {
     weatherRangeCache.clear()
+    weatherRangeRequests.clear()
   }
   scheduleUpcomingNotifications()
   return nextSettings
 }
 
 function createWindow(): InstanceType<typeof BrowserWindow> {
+  // React画面を表示する BrowserWindow。preload 経由で安全にIPCだけ公開する。
   const windowIconPath = getPackagedAssetPath('build', 'icon.png')
   const win = new BrowserWindow({
     width: 1200,
@@ -883,6 +1077,7 @@ function createWindow(): InstanceType<typeof BrowserWindow> {
 }
 
 function createTray(): void {
+  // ウィンドウを閉じても常駐できるよう、タスクトレイメニューを作る。
   if (tray) {
     return
   }
@@ -924,6 +1119,7 @@ function createTray(): void {
 }
 
 function registerIpcHandlers(): void {
+  // renderer の window.api から呼ばれる処理を main process 側で受ける。
   ipcMain.handle(ipcChannels.schedules.list, async () => schedules)
   ipcMain.handle(
     ipcChannels.schedules.upsert,
@@ -956,7 +1152,20 @@ app.on('window-all-closed', () => {
   // トレイ常駐のため、ウィンドウがなくてもアプリを終了しない。
 })
 
+app.on('second-instance', () => {
+  if (!mainWindow) {
+    return
+  }
+  mainWindow.show()
+  mainWindow.focus()
+})
+
 app.whenReady().then(async () => {
+  // Electron の準備完了後に、保存データの読み込みと画面作成を行う。
+  if (!hasSingleInstanceLock) {
+    return
+  }
+
   app.setName(APP_DISPLAY_NAME)
   appSettings = await loadSettingsFromDisk()
   schedules = await loadSchedulesFromDisk()

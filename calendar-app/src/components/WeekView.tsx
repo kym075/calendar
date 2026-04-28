@@ -5,13 +5,12 @@ import {
   isSameDay,
   isToday,
   parseISO,
-  startOfWeek,
 } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { useRef } from 'react'
 import type { ScheduleColor, ScheduleOccurrence } from '../../shared/types/schedule'
 import type { DailyWeather } from '../../shared/types/weather'
-import { toDateKey } from '../utils/calendar'
+import { createWeekGrid, toDateKey } from '../utils/calendar'
 
 const weekLabels = ['日', '月', '火', '水', '木', '金', '土'] as const
 
@@ -34,15 +33,6 @@ interface WeekViewProps {
   onDateDoubleTap?: (date: Date) => void
 }
 
-function createWeekDays(baseDate: Date): Date[] {
-  const start = startOfWeek(baseDate, { weekStartsOn: 0 })
-  return Array.from({ length: 7 }, (_, index) => {
-    const next = new Date(start)
-    next.setDate(start.getDate() + index)
-    return next
-  })
-}
-
 function formatTimeLabel(schedule: ScheduleOccurrence): string {
   if (schedule.allDay) {
     return '終日'
@@ -62,7 +52,7 @@ export function WeekView({
   onDateDoubleTap,
 }: WeekViewProps) {
   const lastTapRef = useRef<{ key: string; time: number } | null>(null)
-  const days = createWeekDays(viewWeek)
+  const days = createWeekGrid(viewWeek)
   const weekStart = days[0] ?? viewWeek
   const weekEnd = endOfWeek(viewWeek, { weekStartsOn: 0 })
 
@@ -132,15 +122,7 @@ export function WeekView({
               onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
               <div className="flex items-center justify-between gap-2">
-                <p className={['text-xs font-semibold', dayLabelClass].join(' ')}>
-                  {weekLabels[index]}
-                </p>
                 <div className="flex items-center gap-1.5">
-                  {weather && (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {weather.weatherShortLabel}
-                    </span>
-                  )}
                   <span
                     className={[
                       'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
@@ -149,7 +131,15 @@ export function WeekView({
                   >
                     {format(date, 'd')}
                   </span>
+                  <p className={['text-xs font-semibold', dayLabelClass].join(' ')}>
+                    {weekLabels[index]}
+                  </p>
                 </div>
+                {weather && (
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-sm leading-none text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {weather.weatherShortLabel}
+                  </span>
+                )}
               </div>
 
               {weather && (

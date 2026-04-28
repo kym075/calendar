@@ -29,11 +29,11 @@ const viewModeLabelMap: Record<CalendarViewMode, string> = {
 }
 const colorSampleLabelMap: Record<ScheduleColor, string> = {
   yellow: '🟨 イエロー',
-  sky: '🟦 スカイ',
-  emerald: '🟩 エメラルド',
-  amber: '🟧 アンバー',
-  rose: '🟥 ローズ',
-  violet: '🟪 バイオレット',
+  sky: '🟦 ブルー',
+  emerald: '🟩 グリーン',
+  amber: '🟧 オレンジ',
+  rose: '🟥 レッド',
+  violet: '🟪 パープル',
 }
 
 function parseDateKey(value: string): Date {
@@ -165,10 +165,15 @@ function App() {
   const weatherRangeEndDate = format(weatherRange.end, 'yyyy-MM-dd')
 
   useEffect(() => {
-    void loadWeatherRange({
-      startDate: weatherRangeStartDate,
-      endDate: weatherRangeEndDate,
-    })
+    // 月/週の移動を連打したとき、天気APIへ短時間に何度も問い合わせないよう少し待つ。
+    const timeoutId = window.setTimeout(() => {
+      void loadWeatherRange({
+        startDate: weatherRangeStartDate,
+        endDate: weatherRangeEndDate,
+      })
+    }, 180)
+
+    return () => window.clearTimeout(timeoutId)
   }, [
     loadWeatherRange,
     settings.weatherRegion,
@@ -273,14 +278,14 @@ function App() {
     }
 
     return (
-        <CalendarView
-          viewMonth={startOfMonth(viewDate)}
-          selectedDate={selectedDate}
-          schedulesByDate={monthSchedulesByDate}
-          weatherByDate={weatherByDate}
-          onChangeMonth={setViewDate}
-          onSelectDate={handleSelectDate}
-          onDateDoubleTap={mobile ? openMobileList : undefined}
+      <CalendarView
+        viewMonth={startOfMonth(viewDate)}
+        selectedDate={selectedDate}
+        schedulesByDate={monthSchedulesByDate}
+        weatherByDate={weatherByDate}
+        onChangeMonth={setViewDate}
+        onSelectDate={handleSelectDate}
+        onDateDoubleTap={mobile ? openMobileList : undefined}
       />
     )
   }

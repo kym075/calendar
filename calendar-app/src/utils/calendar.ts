@@ -22,6 +22,7 @@ export function toDateKey(date: Date): string {
 }
 
 export function createMonthGrid(viewMonth: Date): Date[] {
+  // 月表示は前後の月の日付も含め、必ず日曜始まり・土曜終わりのグリッドにする。
   const start = startOfWeek(startOfMonth(viewMonth), { weekStartsOn: 0 })
   const end = endOfWeek(endOfMonth(viewMonth), { weekStartsOn: 0 })
 
@@ -50,6 +51,7 @@ interface ScheduleDisplayRange {
 export function getScheduleDisplayRange(
   schedule: Pick<ScheduleOccurrence, 'startAt' | 'endAt'>,
 ): ScheduleDisplayRange | null {
+  // 終了が 00:00 の終日予定は、画面上では前日までの予定として見せる。
   const startAt = parseISO(schedule.startAt)
   const endAt = parseISO(schedule.endAt)
   if (!isValid(startAt) || !isValid(endAt)) {
@@ -79,6 +81,7 @@ export function buildScheduleMap(
   rangeStart: Date,
   rangeEnd: Date,
 ): Record<string, ScheduleOccurrence[]> {
+  // カレンダーの各日付キーに、その日に表示する予定をまとめる。
   const map: Record<string, ScheduleOccurrence[]> = {}
   const occurrences = getScheduleOccurrencesForRange(
     items,

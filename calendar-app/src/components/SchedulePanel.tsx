@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react'
 import type {
   RecurrenceEndMode,
   RecurrenceFrequency,
+  RecurrenceMonthlyMode,
   Schedule,
   ScheduleColor,
   ScheduleId,
@@ -25,6 +26,7 @@ import {
   defaultScheduleRecurrence,
   recurrenceCountMax,
   recurrenceCountMin,
+  scheduleColors,
   scheduleMemoMaxLength,
   scheduleTitleMaxLength,
 } from '../../shared/types/schedule'
@@ -40,11 +42,11 @@ const colorClassMap: Record<ScheduleColor, string> = {
 }
 const colorLabelMap: Record<ScheduleColor, string> = {
   yellow: 'イエロー',
-  sky: 'スカイ',
-  emerald: 'エメラルド',
-  amber: 'アンバー',
-  rose: 'ローズ',
-  violet: 'バイオレット',
+  sky: 'ブルー',
+  emerald: 'グリーン',
+  amber: 'オレンジ',
+  rose: 'レッド',
+  violet: 'パープル',
 }
 const recurrenceFrequencyLabelMap: Record<RecurrenceFrequency, string> = {
   none: '繰り返さない',
@@ -52,15 +54,12 @@ const recurrenceFrequencyLabelMap: Record<RecurrenceFrequency, string> = {
   weekly: '毎週',
   monthly: '毎月',
 }
+const recurrenceMonthlyModeLabelMap: Record<RecurrenceMonthlyMode, string> = {
+  date: '日付',
+  weekday: '曜日',
+}
 
-const colorOptions: ScheduleColor[] = [
-  'yellow',
-  'sky',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-]
+const colorOptions: ScheduleColor[] = [...scheduleColors]
 
 interface SchedulePanelProps {
   selectedDate: Date
@@ -117,7 +116,12 @@ function formatRecurrenceLabel(schedule: ScheduleOccurrence): string {
   if (recurrence.frequency === 'none') {
     return '単発'
   }
-  const frequencyLabel = recurrenceFrequencyLabelMap[recurrence.frequency]
+  const frequencyLabel =
+    recurrence.frequency === 'monthly'
+      ? `${recurrenceFrequencyLabelMap.monthly}（${
+          recurrenceMonthlyModeLabelMap[recurrence.monthlyMode ?? 'date']
+        }）`
+      : recurrenceFrequencyLabelMap[recurrence.frequency]
   if (recurrence.endMode === 'onDate' && recurrence.untilDate) {
     return `${frequencyLabel} (${recurrence.untilDate}まで)`
   }
@@ -137,6 +141,7 @@ interface FormInitialValues {
   memo: string
   color: ScheduleColor
   recurrenceFrequency: RecurrenceFrequency
+  recurrenceMonthlyMode: RecurrenceMonthlyMode
   recurrenceEndMode: RecurrenceEndMode
   recurrenceUntilDate: string
   recurrenceCount: string
@@ -157,6 +162,7 @@ function createFormInitialValues(
       memo: '',
       color: 'sky',
       recurrenceFrequency: 'none',
+      recurrenceMonthlyMode: 'date',
       recurrenceEndMode: 'never',
       recurrenceUntilDate: format(selectedDate, 'yyyy-MM-dd'),
       recurrenceCount: '10',
@@ -177,6 +183,7 @@ function createFormInitialValues(
     memo: editingSchedule.memo,
     color: editingSchedule.color,
     recurrenceFrequency: recurrence.frequency,
+    recurrenceMonthlyMode: recurrence.monthlyMode ?? 'date',
     recurrenceEndMode: recurrence.endMode,
     recurrenceUntilDate: recurrence.untilDate ?? toDateInput(editingSchedule.startAt),
     recurrenceCount:
@@ -186,6 +193,7 @@ function createFormInitialValues(
 
 function buildRecurrenceFromForm(
   recurrenceFrequency: RecurrenceFrequency,
+  recurrenceMonthlyMode: RecurrenceMonthlyMode,
   recurrenceEndMode: RecurrenceEndMode,
   recurrenceUntilDate: string,
   recurrenceCount: string,
@@ -195,6 +203,8 @@ function buildRecurrenceFromForm(
   if (recurrenceFrequency === 'none') {
     return { recurrence: defaultScheduleRecurrence, error: null }
   }
+  const monthlyMode =
+    recurrenceFrequency === 'monthly' ? recurrenceMonthlyMode : null
 
   if (recurrenceEndMode === 'onDate') {
     const untilDay = parse(recurrenceUntilDate, 'yyyy-MM-dd', selectedDate)
@@ -207,6 +217,7 @@ function buildRecurrenceFromForm(
     return {
       recurrence: {
         frequency: recurrenceFrequency,
+        monthlyMode,
         endMode: 'onDate',
         untilDate: recurrenceUntilDate,
         count: null,
@@ -230,6 +241,7 @@ function buildRecurrenceFromForm(
     return {
       recurrence: {
         frequency: recurrenceFrequency,
+        monthlyMode,
         endMode: 'afterCount',
         untilDate: null,
         count,
@@ -241,6 +253,7 @@ function buildRecurrenceFromForm(
   return {
     recurrence: {
       frequency: recurrenceFrequency,
+      monthlyMode,
       endMode: 'never',
       untilDate: null,
       count: null,
@@ -372,6 +385,8 @@ export function SchedulePanel({
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>(
     initialFormValues.recurrenceFrequency,
   )
+  const [recurrenceMonthlyMode, setRecurrenceMonthlyMode] =
+    useState<RecurrenceMonthlyMode>(initialFormValues.recurrenceMonthlyMode)
   const [recurrenceEndMode, setRecurrenceEndMode] = useState<RecurrenceEndMode>(
     initialFormValues.recurrenceEndMode,
   )
@@ -452,6 +467,7 @@ export function SchedulePanel({
 
     const recurrenceResult = buildRecurrenceFromForm(
       recurrenceFrequency,
+      recurrenceMonthlyMode,
       recurrenceEndMode,
       recurrenceUntilDate,
       recurrenceCount,
@@ -645,6 +661,32 @@ export function SchedulePanel({
                 <option value="monthly">毎月</option>
               </select>
             </div>
+
+            {recurrenceFrequency === 'monthly' && (
+              <div>
+                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                  毎月の基準
+                </label>
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 p-1 dark:border-slate-700">
+                  {(['date', 'weekday'] as RecurrenceMonthlyMode[]).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={[
+                        'rounded-md px-3 py-1.5 text-sm font-medium',
+                        recurrenceMonthlyMode === option
+                          ? 'bg-sky-600 text-white'
+                          : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+                      ].join(' ')}
+                      onClick={() => setRecurrenceMonthlyMode(option)}
+                      aria-pressed={recurrenceMonthlyMode === option}
+                    >
+                      {recurrenceMonthlyModeLabelMap[option]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {recurrenceFrequency !== 'none' && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

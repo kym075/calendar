@@ -3,13 +3,16 @@ import {
   addMonths,
   addWeeks,
   differenceInCalendarMonths,
+  endOfMonth,
+  getDate,
+  getDay,
   isValid,
   parse,
   parseISO,
   startOfDay,
+  startOfMonth,
 } from 'date-fns'
 import type {
-  RecurrenceFrequency,
   Schedule,
   ScheduleOccurrence,
   ScheduleRecurrence,
@@ -39,23 +42,74 @@ function sortOccurrences(items: ScheduleOccurrence[]): ScheduleOccurrence[] {
   )
 }
 
+function copyTime(source: Date, targetDay: Date): Date {
+  // 日付だけを差し替え、時刻は元の予定と同じにする。
+  const next = new Date(targetDay)
+  next.setHours(
+    source.getHours(),
+    source.getMinutes(),
+    source.getSeconds(),
+    source.getMilliseconds(),
+  )
+  return next
+}
+
+function getMonthlyWeekdayOccurrence(base: Date, occurrenceIndex: number): Date {
+  // 「第2火曜」のように曜日基準で毎月繰り返す場合の発生日を求める。
+  const targetMonthStart = startOfMonth(addMonths(base, occurrenceIndex))
+  const baseWeekday = getDay(base)
+  const weekIndex = Math.floor((getDate(base) - 1) / 7)
+  const firstWeekdayOffset =
+    (baseWeekday - getDay(targetMonthStart) + 7) % 7
+  let targetDay = addDays(
+    targetMonthStart,
+    firstWeekdayOffset + weekIndex * 7,
+  )
+
+  if (targetDay.getMonth() !== targetMonthStart.getMonth()) {
+    const targetMonthEnd = endOfMonth(targetMonthStart)
+    const lastWeekdayOffset = (getDay(targetMonthEnd) - baseWeekday + 7) % 7
+    targetDay = addDays(targetMonthEnd, -lastWeekdayOffset)
+  }
+
+  return copyTime(base, targetDay)
+}
+
 function addOccurrenceOffset(
   base: Date,
-  frequency: RecurrenceFrequency,
+  recurrence: ScheduleRecurrence,
   occurrenceIndex: number,
 ): Date {
-  switch (frequency) {
+  switch (recurrence.frequency) {
     case 'daily':
       return addDays(base, occurrenceIndex)
     case 'weekly':
       return addWeeks(base, occurrenceIndex)
     case 'monthly':
+      if (recurrence.monthlyMode === 'weekday') {
+        return getMonthlyWeekdayOccurrence(base, occurrenceIndex)
+      }
       return addMonths(base, occurrenceIndex)
     case 'none':
       return base
     default:
       return base
   }
+}
+
+function addOccurrenceEndOffset(
+  baseStart: Date,
+  baseEnd: Date,
+  recurrence: ScheduleRecurrence,
+  occurrenceIndex: number,
+  occurrenceStart: Date,
+): Date {
+  if (recurrence.frequency === 'monthly' && recurrence.monthlyMode === 'weekday') {
+    return new Date(
+      occurrenceStart.getTime() + baseEnd.getTime() - baseStart.getTime(),
+    )
+  }
+  return addOccurrenceOffset(baseEnd, recurrence, occurrenceIndex)
 }
 
 function parseUntilDate(untilDate: string | null): Date | null {
@@ -98,6 +152,7 @@ function getStartIndexForRange(
   recurrence: ScheduleRecurrence,
   rangeStart: Date,
 ): number {
+  // 表示範囲より前の繰り返しを全部展開しないよう、開始候補の番号を先に進める。
   switch (recurrence.frequency) {
     case 'daily': {
       const diff = rangeStart.getTime() - baseEnd.getTime()
@@ -162,6 +217,7 @@ export function expandScheduleOccurrencesForRange(
   rangeStart: Date,
   rangeEnd: Date,
 ): ScheduleOccurrence[] {
+  // 保存済みの1件の予定を、指定範囲内に出現する予定一覧へ展開する。
   const baseStart = parseISO(schedule.startAt)
   const baseEnd = parseISO(schedule.endAt)
   if (
@@ -186,17 +242,19 @@ export function expandScheduleOccurrencesForRange(
   while (true) {
     const occurrenceStart = addOccurrenceOffset(
       baseStart,
-      schedule.recurrence.frequency,
+      schedule.recurrence,
       index,
     )
     if (!isOccurrenceAllowed(schedule.recurrence, occurrenceStart, index)) {
       break
     }
 
-    const occurrenceEnd = addOccurrenceOffset(
+    const occurrenceEnd = addOccurrenceEndOffset(
+      baseStart,
       baseEnd,
-      schedule.recurrence.frequency,
+      schedule.recurrence,
       index,
+      occurrenceStart,
     )
     if (occurrenceStart.getTime() > rangeEndMs && schedule.recurrence.frequency !== 'none') {
       break
@@ -234,6 +292,7 @@ export function findNextOccurrenceStartingAfter(
   schedule: Schedule,
   threshold: Date,
 ): ScheduleOccurrence | null {
+  // 通知用に「指定時刻以降で次に始まる予定」を1件だけ探す。
   const baseStart = parseISO(schedule.startAt)
   const baseEnd = parseISO(schedule.endAt)
   if (!isValid(baseStart) || !isValid(baseEnd) || baseStart.getTime() >= baseEnd.getTime()) {
@@ -246,7 +305,7 @@ export function findNextOccurrenceStartingAfter(
   while (true) {
     const occurrenceStart = addOccurrenceOffset(
       baseStart,
-      schedule.recurrence.frequency,
+      schedule.recurrence,
       index,
     )
     if (!isOccurrenceAllowed(schedule.recurrence, occurrenceStart, index)) {
@@ -254,10 +313,12 @@ export function findNextOccurrenceStartingAfter(
     }
 
     if (occurrenceStart.getTime() >= thresholdMs) {
-      const occurrenceEnd = addOccurrenceOffset(
+      const occurrenceEnd = addOccurrenceEndOffset(
+        baseStart,
         baseEnd,
-        schedule.recurrence.frequency,
+        schedule.recurrence,
         index,
+        occurrenceStart,
       )
       return createOccurrence(schedule, index, occurrenceStart, occurrenceEnd)
     }
