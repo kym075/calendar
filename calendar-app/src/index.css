@@ -30,22 +30,28 @@ body:not(.theme-white) {
 body.theme-white {
   background: #f7f9fc;
 
-  --panel-bg: #ffffff;
-  --panel-border: #d9e2ef;
-  --surface-bg: #ffffff;
-  --surface-hover: #eef2f7;
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-subtle: #94a3b8;
-  --field-bg: #ffffff;
-  --field-border: #cdd8e6;
-  --field-disabled-bg: #f1f5f9;
-  --field-disabled-text: #94a3b8;
-  --button-bg: #f8fafc;
-  --button-border: #cdd8e6;
-  --button-text: #334155;
-  --panel-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  --white-panel-bg: #ffffff;
+  --white-panel-border: #d9e2ef;
+  --white-surface-bg: #ffffff;
+  --white-surface-hover: #eef2f7;
+  --white-text-primary: #0f172a;
+  --white-text-secondary: #334155;
+  --white-text-muted: #64748b;
+  --white-text-subtle: #94a3b8;
+  --white-field-bg: #ffffff;
+  --white-field-border: #cdd8e6;
+  --white-field-disabled-bg: #f1f5f9;
+  --white-field-disabled-text: #94a3b8;
+  --white-button-bg: #f8fafc;
+  --white-button-border: #cdd8e6;
+  --white-button-text: #334155;
+  --white-panel-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  --white-danger-border: #fda4af;
+  --white-danger-bg: #fff1f2;
+  --white-danger-text: #be123c;
+  --white-warning-border: #fcd34d;
+  --white-warning-bg: #fffbeb;
+  --white-warning-text: #92400e;
 }
 
 #root {
@@ -53,122 +59,135 @@ body.theme-white {
 }
 
 body.theme-white .app-root {
-  color: var(--text-primary);
+  color: var(--white-text-primary);
 }
 
-body.theme-white .app-root [class*="rounded-2xl"][class*="border"] {
-  background-color: var(--panel-bg) !important;
-  border-color: var(--panel-border) !important;
-  box-shadow: var(--panel-shadow) !important;
-  backdrop-filter: none !important;
+/* 白テーマは既存のTailwindクラスを正確に上書きする。
+   部分一致セレクタを避けることで、将来のクラス追加時の巻き込みを減らす。 */
+body.theme-white .app-root .rounded-2xl.border {
+  background-color: var(--white-panel-bg);
+  border-color: var(--white-panel-border);
+  box-shadow: var(--white-panel-shadow);
+  backdrop-filter: none;
 }
 
 body.theme-white .app-root
-  :is(section, article, div)[class*="rounded-md"][class*="border"]:not([class*="border-amber"]):not([class*="border-rose"]) {
-  border-color: var(--panel-border) !important;
+  :is(section, article, div, label).rounded-md.border:not(.border-amber-300):not(.border-rose-300) {
+  border-color: var(--white-panel-border);
 }
 
-body.theme-white .app-root [class*="text-slate-800"],
-body.theme-white .app-root [class*="text-slate-700"],
-body.theme-white .app-root [class*="dark:text-slate-100"],
-body.theme-white .app-root [class*="dark:text-slate-200"] {
-  color: var(--text-primary) !important;
+body.theme-white
+  .app-root
+  :where(.text-slate-800, .text-slate-700, .dark\:text-slate-100, .dark\:text-slate-200) {
+  color: var(--white-text-primary);
 }
 
-body.theme-white .app-root [class*="text-slate-600"],
-body.theme-white .app-root [class*="dark:text-slate-300"] {
-  color: var(--text-secondary) !important;
+body.theme-white .app-root :where(.text-slate-600, .dark\:text-slate-300) {
+  color: var(--white-text-secondary);
 }
 
-body.theme-white .app-root [class*="text-slate-500"],
-body.theme-white .app-root [class*="dark:text-slate-400"],
-body.theme-white .app-root [class*="dark:text-slate-500"] {
-  color: var(--text-muted) !important;
+body.theme-white
+  .app-root
+  :where(.text-slate-500, .dark\:text-slate-400, .dark\:text-slate-500) {
+  color: var(--white-text-muted);
 }
 
-body.theme-white .app-root [class*="text-slate-400"],
-body.theme-white .app-root [class*="dark:text-slate-600"] {
-  color: var(--text-subtle) !important;
+body.theme-white .app-root :where(.text-slate-400, .dark\:text-slate-600) {
+  color: var(--white-text-subtle);
 }
 
-body.theme-white .app-root [class*="border-slate-200"],
-body.theme-white .app-root [class*="border-slate-300"],
-body.theme-white .app-root [class*="dark:border-slate-700"] {
-  border-color: var(--panel-border) !important;
+body.theme-white
+  .app-root
+  :where(
+    .border-slate-200,
+    .border-slate-200\/80,
+    .border-slate-300,
+    .dark\:border-slate-700
+  ) {
+  border-color: var(--white-panel-border);
 }
 
-body.theme-white .app-root [class*="dark:border-white"] {
-  border-color: #0f172a !important;
+body.theme-white .app-root .dark\:border-white {
+  border-color: var(--white-text-primary);
 }
 
-body.theme-white .app-root [class*="bg-white"],
-body.theme-white .app-root [class*="bg-slate-50"],
-body.theme-white .app-root [class*="bg-slate-100"],
-body.theme-white .app-root [class*="dark:bg-slate-900"],
-body.theme-white .app-root [class*="dark:bg-slate-800"],
-body.theme-white .app-root [class*="dark:bg-slate-700"] {
-  background-color: var(--surface-bg) !important;
+body.theme-white
+  .app-root
+  :where(
+    .bg-white,
+    .bg-white\/95,
+    .bg-slate-50,
+    .bg-slate-100,
+    .dark\:bg-slate-900,
+    .dark\:bg-slate-900\/90,
+    .dark\:bg-slate-800,
+    .dark\:bg-slate-700
+  ) {
+  background-color: var(--white-surface-bg);
 }
 
-body.theme-white .app-root [class*="bg-slate-200"] {
-  background-color: var(--panel-border) !important;
+body.theme-white .app-root :where(.bg-slate-200, .dark\:bg-slate-700) {
+  background-color: var(--white-panel-border);
 }
 
-body.theme-white .app-root [class*="hover:bg-slate-50"]:hover,
-body.theme-white .app-root [class*="hover:bg-slate-100"]:hover,
-body.theme-white .app-root [class*="dark:hover:bg-slate-800"]:hover {
-  background-color: var(--surface-hover) !important;
+body.theme-white
+  .app-root
+  :where(.hover\:bg-slate-50, .hover\:bg-slate-100, .dark\:hover\:bg-slate-800):hover {
+  background-color: var(--white-surface-hover);
 }
 
-body.theme-white .app-root button[class*="border-slate-"],
-body.theme-white .app-root button[class*="dark:border-slate-"] {
-  background-color: var(--button-bg);
-  border-color: var(--button-border) !important;
-  color: var(--button-text) !important;
+body.theme-white
+  .app-root
+  button:where(.border-slate-200, .border-slate-300, .dark\:border-slate-700) {
+  background-color: var(--white-button-bg);
+  border-color: var(--white-button-border);
+  color: var(--white-button-text);
 }
 
-body.theme-white .app-root button[class*="border-slate-"]:hover,
-body.theme-white .app-root button[class*="dark:border-slate-"]:hover {
-  background-color: var(--surface-hover) !important;
+body.theme-white
+  .app-root
+  button:where(.border-slate-200, .border-slate-300, .dark\:border-slate-700):hover {
+  background-color: var(--white-surface-hover);
 }
 
 body.theme-white
   .app-root
   :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
-  background-color: var(--field-bg) !important;
-  border-color: var(--field-border) !important;
-  color: var(--text-primary) !important;
+  background-color: var(--white-field-bg);
+  border-color: var(--white-field-border);
+  color: var(--white-text-primary);
 }
 
 body.theme-white
   .app-root
   :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):disabled {
-  background-color: var(--field-disabled-bg) !important;
-  color: var(--field-disabled-text) !important;
-  border-color: var(--field-border) !important;
+  background-color: var(--white-field-disabled-bg);
+  color: var(--white-field-disabled-text);
+  border-color: var(--white-field-border);
 }
 
-body.theme-white .app-root [class*="dark:border-rose-500"] {
-  border-color: #fda4af !important;
+body.theme-white .app-root .dark\:border-rose-500\/60,
+body.theme-white .app-root .dark\:border-rose-500\/50 {
+  border-color: var(--white-danger-border);
 }
 
-body.theme-white .app-root [class*="dark:bg-rose-900"] {
-  background-color: #fff1f2 !important;
+body.theme-white .app-root .dark\:bg-rose-900\/20,
+body.theme-white .app-root .dark\:hover\:bg-rose-900\/30:hover {
+  background-color: var(--white-danger-bg);
 }
 
-body.theme-white .app-root [class*="dark:text-rose-300"],
-body.theme-white .app-root [class*="dark:text-rose-400"] {
-  color: #be123c !important;
+body.theme-white .app-root :where(.dark\:text-rose-300, .dark\:text-rose-400) {
+  color: var(--white-danger-text);
 }
 
-body.theme-white .app-root [class*="dark:border-amber-500"] {
-  border-color: #fcd34d !important;
+body.theme-white .app-root .dark\:border-amber-500\/50 {
+  border-color: var(--white-warning-border);
 }
 
-body.theme-white .app-root [class*="dark:bg-amber-900"] {
-  background-color: #fffbeb !important;
+body.theme-white .app-root .dark\:bg-amber-900\/20 {
+  background-color: var(--white-warning-bg);
 }
 
-body.theme-white .app-root [class*="dark:text-amber-300"] {
-  color: #92400e !important;
+body.theme-white .app-root .dark\:text-amber-300 {
+  color: var(--white-warning-text);
 }

@@ -295,7 +295,7 @@ function App() {
       <div className="mx-auto flex h-full max-w-7xl flex-col gap-3 p-3 md:p-4">
         <header className="space-y-2 rounded-2xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
           <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-bold sm:text-xl">Calendar Learning App</h1>
+            <h1 className="text-lg font-bold sm:text-xl">Toki - Calendar App</h1>
             <div className="flex items-center gap-2">
               <button
                 type="button"
