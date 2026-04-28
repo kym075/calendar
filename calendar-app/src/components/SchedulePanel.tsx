@@ -1,5 +1,6 @@
 import {
   addDays,
+  differenceInCalendarDays,
   format,
   isBefore,
   isSameDay,
@@ -83,6 +84,25 @@ function parseTimeLabel(timeLabel: string): { hours: number; minutes: number } {
   const minutes = Number(minutesText)
   if (Number.isNaN(hours) || Number.isNaN(minutes)) {
     return { hours: 9, minutes: 0 }
+  }
+  return { hours, minutes }
+}
+
+function parseTimeInputValue(
+  timeLabel: string,
+): { hours: number; minutes: number } | null {
+  const [hoursText, minutesText] = timeLabel.split(':')
+  const hours = Number(hoursText)
+  const minutes = Number(minutesText)
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null
   }
   return { hours, minutes }
 }
@@ -402,10 +422,74 @@ export function SchedulePanel({
     [daySchedules],
   )
 
+  const parseDateValue = (dateText: string): Date | null => {
+    const parsed = parse(dateText, 'yyyy-MM-dd', selectedDate)
+    return isValid(parsed) ? parsed : null
+  }
+
+  const buildTimedDate = (dateText: string, timeText: string): Date | null => {
+    const day = parseDateValue(dateText)
+    const clock = parseTimeInputValue(timeText)
+    if (!day || !clock) {
+      return null
+    }
+    return set(day, {
+      hours: clock.hours,
+      minutes: clock.minutes,
+      seconds: 0,
+      milliseconds: 0,
+    })
+  }
+
+  const shiftEndByNextStart = (nextStartAt: Date): void => {
+    const currentStartAt = buildTimedDate(startDate, startTime)
+    const currentEndAt = buildTimedDate(endDate, endTime)
+    if (!currentStartAt || !currentEndAt || !isBefore(currentStartAt, currentEndAt)) {
+      return
+    }
+
+    const durationMs = currentEndAt.getTime() - currentStartAt.getTime()
+    const nextEndAt = new Date(nextStartAt.getTime() + durationMs)
+    setEndDate(format(nextEndAt, 'yyyy-MM-dd'))
+    setEndTime(format(nextEndAt, 'HH:mm'))
+  }
+
   const handleStartDateChange = (nextStartDate: string): void => {
+    const currentStartDay = parseDateValue(startDate)
+    const currentEndDay = parseDateValue(endDate)
+    const nextStartDay = parseDateValue(nextStartDate)
+
     setStartDate(nextStartDate)
+    if (allDay && currentStartDay && currentEndDay && nextStartDay) {
+      const dayDelta = differenceInCalendarDays(nextStartDay, currentStartDay)
+      setEndDate(format(addDays(currentEndDay, dayDelta), 'yyyy-MM-dd'))
+    }
+    if (!allDay && nextStartDay) {
+      const clock = parseTimeInputValue(startTime)
+      if (clock) {
+        const nextStartAt = set(nextStartDay, {
+          hours: clock.hours,
+          minutes: clock.minutes,
+          seconds: 0,
+          milliseconds: 0,
+        })
+        shiftEndByNextStart(nextStartAt)
+      }
+    }
     if (recurrenceEndMode === 'onDate' && recurrenceUntilDate < nextStartDate) {
       setRecurrenceUntilDate(nextStartDate)
+    }
+  }
+
+  const handleStartTimeChange = (nextStartTime: string): void => {
+    setStartTime(nextStartTime)
+    if (allDay) {
+      return
+    }
+
+    const nextStartAt = buildTimedDate(startDate, nextStartTime)
+    if (nextStartAt) {
+      shiftEndByNextStart(nextStartAt)
     }
   }
 
@@ -604,7 +688,7 @@ export function SchedulePanel({
               <input
                 type="time"
                 value={startTime}
-                onChange={(event) => setStartTime(event.target.value)}
+                onChange={(event) => handleStartTimeChange(event.target.value)}
                 disabled={allDay}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-900 dark:disabled:text-slate-500"
               />

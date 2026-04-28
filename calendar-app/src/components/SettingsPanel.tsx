@@ -82,6 +82,9 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
   const [weatherRegion, setWeatherRegion] = useState<WeatherRegion>(
     settings.weatherRegion,
   )
+  const [startupLaunchEnabled, setStartupLaunchEnabled] = useState(
+    settings.startupLaunchEnabled,
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -94,6 +97,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
         preferredViewMode,
         colorTheme,
         weatherRegion,
+        startupLaunchEnabled,
       })
       onClose()
     } catch (saveError: unknown) {
@@ -112,7 +116,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
           <div>
             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">設定</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              通知・既定表示・テーマ・天気地域をカスタマイズできます。
+              通知・既定表示・テーマ・天気地域・自動起動をカスタマイズできます。
             </p>
           </div>
           <button
@@ -247,6 +251,28 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                 )
               })}
             </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              自動起動
+            </h3>
+            <label className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-left dark:border-slate-700">
+              <span>
+                <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  PC起動時にTokiを起動
+                </span>
+                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
+                  Windowsログイン時にトレイ常駐で起動します。
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={startupLaunchEnabled}
+                onChange={(event) => setStartupLaunchEnabled(event.target.checked)}
+                className="h-5 w-5 shrink-0 accent-sky-600"
+              />
+            </label>
           </section>
 
           {error && (

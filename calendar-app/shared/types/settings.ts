@@ -19,6 +19,7 @@ export interface AppSettings {
   preferredViewMode: CalendarViewMode
   colorTheme: ColorTheme
   weatherRegion: WeatherRegion
+  startupLaunchEnabled: boolean
 }
 
 export type AppSettingsInput = Partial<AppSettings>
@@ -28,6 +29,7 @@ export const defaultAppSettings: AppSettings = {
   preferredViewMode: 'month',
   colorTheme: 'classic',
   weatherRegion: 'nagoya',
+  startupLaunchEnabled: false,
 }
 
 export function isCalendarViewMode(value: unknown): value is CalendarViewMode {
