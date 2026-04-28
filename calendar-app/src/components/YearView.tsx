@@ -64,7 +64,7 @@ export function YearView({
               className={[
                 'rounded-lg border p-3 text-left',
                 selected
-                  ? 'border-sky-400 ring-2 ring-sky-500 ring-inset'
+                  ? 'border-sky-400'
                   : 'border-slate-200 dark:border-slate-700',
                 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
               ].join(' ')}
