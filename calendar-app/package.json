@@ -23,6 +23,7 @@
       "dist/**",
       "dist-electron/**",
       "build/icon.png",
+      "build/icon.ico",
       "package.json"
     ],
     "win": {

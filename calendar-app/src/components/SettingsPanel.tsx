@@ -4,11 +4,12 @@ import type {
   AppSettingsInput,
   CalendarViewMode,
   ColorTheme,
-  NotificationLeadMinutes,
   WeatherRegion,
 } from '../../shared/types/settings'
 import {
   colorThemes,
+  notificationLeadMinutesMax,
+  notificationLeadMinutesMin,
   notificationLeadMinutesOptions,
   weatherRegions,
 } from '../../shared/types/settings'
@@ -17,20 +18,6 @@ interface SettingsPanelProps {
   settings: AppSettings
   onSave: (input: AppSettingsInput) => Promise<void>
   onClose: () => void
-}
-
-const leadMinuteLabelMap: Record<NotificationLeadMinutes, string> = {
-  5: '5分前',
-  10: '10分前',
-  60: '1時間前',
-  1440: '1日前',
-}
-
-const leadMinuteDescriptionMap: Record<NotificationLeadMinutes, string> = {
-  5: '直前リマインド',
-  10: '少し余裕あり',
-  60: '準備時間を確保',
-  1440: '前日に確認',
 }
 
 const viewModeLabelMap: Record<CalendarViewMode, string> = {
@@ -71,10 +58,44 @@ const weatherRegionDescriptionMap: Record<WeatherRegion, string> = {
   fukuoka: '九州地方の予報を反映',
 }
 
+function formatLeadMinutesLabel(minutes: number): string {
+  if (minutes === 24 * 60) {
+    return '1日前'
+  }
+  if (minutes % 60 === 0) {
+    return `${minutes / 60}時間前`
+  }
+  return `${minutes}分前`
+}
+
+function getLeadMinutesDescription(minutes: number): string {
+  if (minutes === 5) {
+    return '直前リマインド'
+  }
+  if (minutes === 10) {
+    return '少し余裕あり'
+  }
+  if (minutes === 60) {
+    return '準備時間を確保'
+  }
+  if (minutes === 24 * 60) {
+    return '前日に確認'
+  }
+  return '自由に指定'
+}
+
 export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps) {
+  const isPresetLeadMinutes = notificationLeadMinutesOptions.some(
+    (option) => option === settings.notificationLeadMinutes,
+  )
   const [notificationLeadMinutes, setNotificationLeadMinutes] = useState(
     settings.notificationLeadMinutes,
   )
+  const [notificationLeadMode, setNotificationLeadMode] = useState<
+    'preset' | 'custom'
+  >(isPresetLeadMinutes ? 'preset' : 'custom')
+  const [customNotificationLeadMinutes, setCustomNotificationLeadMinutes] =
+    useState(String(settings.notificationLeadMinutes))
   const [preferredViewMode, setPreferredViewMode] = useState<CalendarViewMode>(
     settings.preferredViewMode,
   )
@@ -92,8 +113,23 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
     setSaving(true)
     setError(null)
     try {
+      const nextNotificationLeadMinutes =
+        notificationLeadMode === 'custom'
+          ? Number(customNotificationLeadMinutes)
+          : notificationLeadMinutes
+      if (
+        !Number.isInteger(nextNotificationLeadMinutes) ||
+        nextNotificationLeadMinutes < notificationLeadMinutesMin ||
+        nextNotificationLeadMinutes > notificationLeadMinutesMax
+      ) {
+        setError(
+          `通知タイミングは${notificationLeadMinutesMin}〜${notificationLeadMinutesMax}分で入力してください。`,
+        )
+        return
+      }
+
       await onSave({
-        notificationLeadMinutes,
+        notificationLeadMinutes: nextNotificationLeadMinutes,
         preferredViewMode,
         colorTheme,
         weatherRegion,
@@ -133,9 +169,11 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               通知タイミング
             </h3>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
               {notificationLeadMinutesOptions.map((option) => {
-                const selected = option === notificationLeadMinutes
+                const selected =
+                  notificationLeadMode === 'preset' &&
+                  option === notificationLeadMinutes
                 return (
                   <button
                     key={option}
@@ -143,21 +181,63 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                     className={[
                       'rounded-lg border p-2 text-left transition',
                       selected
-                        ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-400 dark:border-sky-500 dark:bg-sky-900/20'
+                        ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
                         : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
                     ].join(' ')}
-                    onClick={() => setNotificationLeadMinutes(option)}
+                    onClick={() => {
+                      setNotificationLeadMode('preset')
+                      setNotificationLeadMinutes(option)
+                    }}
                   >
                     <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                      {leadMinuteLabelMap[option]}
+                      {formatLeadMinutesLabel(option)}
                     </p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {leadMinuteDescriptionMap[option]}
+                      {getLeadMinutesDescription(option)}
                     </p>
                   </button>
                 )
               })}
+              <button
+                type="button"
+                className={[
+                  'rounded-lg border p-2 text-left transition',
+                  notificationLeadMode === 'custom'
+                    ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
+                    : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
+                ].join(' ')}
+                onClick={() => setNotificationLeadMode('custom')}
+              >
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  その他
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  分数を入力
+                </p>
+              </button>
             </div>
+            {notificationLeadMode === 'custom' && (
+              <label className="mt-3 block text-xs text-slate-500 dark:text-slate-400">
+                通知する分数
+                <input
+                  type="number"
+                  min={notificationLeadMinutesMin}
+                  max={notificationLeadMinutesMax}
+                  value={customNotificationLeadMinutes}
+                  onChange={(event) => {
+                    setCustomNotificationLeadMinutes(event.target.value)
+                    const nextValue = Number(event.target.value)
+                    if (Number.isInteger(nextValue)) {
+                      setNotificationLeadMinutes(nextValue)
+                    }
+                  }}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                />
+                <span className="mt-1 block text-[11px]">
+                  {notificationLeadMinutesMin}〜{notificationLeadMinutesMax}分前まで指定できます。
+                </span>
+              </label>
+            )}
           </section>
 
           <section className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
@@ -174,7 +254,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                     className={[
                       'rounded-lg border p-2 text-left transition',
                       selected
-                        ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-400 dark:border-sky-500 dark:bg-sky-900/20'
+                        ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
                         : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
                     ].join(' ')}
                     onClick={() => setPreferredViewMode(option)}
@@ -205,7 +285,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                     className={[
                       'rounded-lg border p-2 text-left transition',
                       selected
-                        ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-400 dark:border-sky-500 dark:bg-sky-900/20'
+                        ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
                         : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
                     ].join(' ')}
                     onClick={() => setColorTheme(option)}
@@ -236,7 +316,7 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                     className={[
                       'rounded-lg border p-2 text-left transition',
                       selected
-                        ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-400 dark:border-sky-500 dark:bg-sky-900/20'
+                        ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
                         : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
                     ].join(' ')}
                     onClick={() => setWeatherRegion(option)}

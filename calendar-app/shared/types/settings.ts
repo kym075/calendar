@@ -1,5 +1,7 @@
 export const calendarViewModes = ['month', 'week', 'year'] as const
 export const notificationLeadMinutesOptions = [5, 10, 60, 24 * 60] as const
+export const notificationLeadMinutesMin = 1
+export const notificationLeadMinutesMax = 7 * 24 * 60
 export const colorThemes = ['classic', 'white'] as const
 export const weatherRegions = [
   'nagoya',
@@ -10,7 +12,7 @@ export const weatherRegions = [
 ] as const
 
 export type CalendarViewMode = (typeof calendarViewModes)[number]
-export type NotificationLeadMinutes = (typeof notificationLeadMinutesOptions)[number]
+export type NotificationLeadMinutes = number
 export type ColorTheme = (typeof colorThemes)[number]
 export type WeatherRegion = (typeof weatherRegions)[number]
 
@@ -45,7 +47,8 @@ export function isNotificationLeadMinutes(
   return (
     typeof value === 'number' &&
     Number.isInteger(value) &&
-    (notificationLeadMinutesOptions as readonly number[]).includes(value)
+    value >= notificationLeadMinutesMin &&
+    value <= notificationLeadMinutesMax
   )
 }
 

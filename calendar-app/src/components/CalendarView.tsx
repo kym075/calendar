@@ -1,4 +1,4 @@
-import { addMonths, format, isSameDay, isSameMonth, isToday } from 'date-fns'
+import { addMonths, format, isSameDay, isSameMonth, isToday, parseISO } from 'date-fns'
 import { ja } from 'date-fns/locale'
 import { useRef } from 'react'
 import {
@@ -67,6 +67,13 @@ function getDominantColor(schedules: ScheduleOccurrence[]): ScheduleColor {
   }
 
   return dominant
+}
+
+function formatScheduleTime(schedule: ScheduleOccurrence): string {
+  if (schedule.allDay) {
+    return '終日'
+  }
+  return format(parseISO(schedule.startAt), 'HH:mm')
 }
 
 export function CalendarView({
@@ -138,10 +145,10 @@ export function CalendarView({
       </div>
 
       <div
-        className="grid min-h-0 flex-1 grid-cols-7 gap-px overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700"
+        className="grid min-h-0 flex-1 grid-cols-7 overflow-visible rounded-lg border-l border-t border-slate-200 dark:border-slate-700"
         style={{ gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` }}
       >
-        {days.map((date) => {
+        {days.map((date, index) => {
           const key = toDateKey(date)
           const schedules = schedulesByDate[key] ?? []
           const weather = weatherByDate[key] ?? null
@@ -174,18 +181,35 @@ export function CalendarView({
           const selected = isSameDay(date, selectedDate)
           const inMonth = isSameMonth(date, viewMonth)
           const today = isToday(date)
+          const dayOfWeek = date.getDay()
+          const weekendBorderClass =
+            dayOfWeek === 0
+              ? 'border-rose-200/80 dark:border-rose-500/40'
+              : dayOfWeek === 6
+                ? 'border-sky-200/80 dark:border-sky-500/40'
+                : 'border-slate-200 dark:border-slate-700'
+          const cornerClass = [
+            index === 0 ? 'rounded-tl-lg' : '',
+            index === 6 ? 'rounded-tr-lg' : '',
+            index === days.length - 7 ? 'rounded-bl-lg' : '',
+            index === days.length - 1 ? 'rounded-br-lg' : '',
+          ].join(' ')
 
           return (
             <button
               key={key}
               type="button"
               className={[
-                'relative flex min-h-16 flex-col bg-white p-1.5 pt-9 text-left transition-colors md:min-h-[4.5rem] md:p-2 md:pt-10 lg:h-full lg:min-h-0',
-                'hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
+                'group relative z-0 flex min-h-16 flex-col overflow-visible border-b border-r p-1.5 pt-9 text-left transition-[background-color,box-shadow,transform] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] md:min-h-[4.5rem] md:p-2 md:pt-10 lg:h-full lg:min-h-0',
+                cornerClass,
+                selected
+                  ? 'border-sky-500 bg-sky-100 shadow-[inset_0_0_0_1px_rgb(2_132_199)] after:border-2 after:border-sky-500 hover:z-20 hover:-translate-y-0.5 hover:bg-sky-100 hover:shadow-[inset_0_0_0_1px_rgb(2_132_199),0_10px_24px_rgba(2,132,199,0.18)] dark:border-sky-300 dark:bg-sky-950/55 dark:shadow-[inset_0_0_0_1px_rgb(125_211_252)] dark:after:border-sky-300 dark:hover:bg-sky-950/65 dark:hover:shadow-[inset_0_0_0_1px_rgb(125_211_252),0_10px_24px_rgba(56,189,248,0.18)]'
+                  : today
+                    ? 'border-amber-400 bg-amber-50 shadow-[inset_0_0_0_1px_rgb(251_191_36)] hover:z-20 hover:-translate-y-0.5 hover:bg-amber-50 hover:shadow-[inset_0_0_0_1px_rgb(251_191_36),0_10px_24px_rgba(217,119,6,0.16)] dark:border-amber-300/80 dark:bg-amber-950/45 dark:shadow-[inset_0_0_0_1px_rgb(252_211_77)] dark:hover:bg-amber-950/55 dark:hover:shadow-[inset_0_0_0_1px_rgb(252_211_77),0_10px_24px_rgba(251,191,36,0.16)]'
+                    : `${weekendBorderClass} bg-white hover:z-20 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-lg dark:bg-slate-900 dark:hover:bg-slate-800`,
                 inMonth
                   ? 'text-slate-800 dark:text-slate-100'
-                  : 'text-slate-400 dark:text-slate-600',
-                selected ? 'ring-2 ring-sky-500 ring-inset' : '',
+                  : 'text-slate-300 dark:text-slate-700',
               ].join(' ')}
               onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
@@ -195,7 +219,13 @@ export function CalendarView({
                   isDenseMonth
                     ? 'h-6 w-6 text-xs font-medium'
                     : 'h-7 w-7 text-sm font-medium',
-                  today ? 'bg-sky-500 text-white' : '',
+                  selected
+                    ? 'bg-sky-600 text-white dark:bg-sky-300 dark:text-slate-950'
+                    : today
+                      ? 'bg-amber-400 text-slate-950 shadow-sm dark:bg-amber-300'
+                      : inMonth
+                        ? 'text-slate-800 dark:text-slate-100'
+                        : 'font-normal text-slate-300 dark:text-slate-700',
                 ].join(' ')}
               >
                 {format(date, 'd')}
@@ -235,7 +265,13 @@ export function CalendarView({
                     </div>
                   )}
                   {visibleRangeBars.length > 0 && (
-                    <div className={isDenseMonth ? '-mx-1.5 pt-0.5 md:-mx-2' : '-mx-1.5 space-y-0.5 pt-0.5 md:-mx-2'}>
+                    <div
+                      className={
+                        isDenseMonth
+                          ? '-mx-1.5 pt-0.5 md:-mx-2'
+                          : '-mx-1.5 space-y-0.5 pt-0.5 md:-mx-2'
+                      }
+                    >
                       {visibleRangeBars.map((segment) => (
                         <div
                           key={segment.id}
@@ -264,6 +300,36 @@ export function CalendarView({
                       )}
                     </div>
                   )}
+                </div>
+              )}
+              {schedules.length > 0 && (
+                <div className="pointer-events-none absolute left-2 right-2 top-11 z-30 translate-y-1 rounded-md border border-slate-200 bg-white p-2 text-left opacity-0 shadow-xl transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 dark:border-sky-400/45 dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/45 dark:backdrop-blur">
+                  <p className="mb-1 text-[11px] font-semibold text-slate-700 dark:text-sky-100">
+                    {format(date, 'M/d')} の予定
+                  </p>
+                  <div className="space-y-1">
+                    {schedules.slice(0, 5).map((schedule) => (
+                      <div key={schedule.id} className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className={[
+                            'h-2 w-2 shrink-0 rounded-full',
+                            dotClassMap[schedule.color],
+                          ].join(' ')}
+                        />
+                        <p className="min-w-0 truncate text-[11px] text-slate-600 dark:text-slate-100">
+                          <span className="mr-1 text-slate-400 dark:text-sky-300">
+                            {formatScheduleTime(schedule)}
+                          </span>
+                          {schedule.title}
+                        </p>
+                      </div>
+                    ))}
+                    {schedules.length > 5 && (
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        ほか {schedules.length - 5} 件
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </button>

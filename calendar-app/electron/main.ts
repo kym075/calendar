@@ -228,8 +228,8 @@ function getNotificationLeadMs(): number {
 }
 
 function formatLeadLabel(minutes: NotificationLeadMinutes): string {
-  if (minutes === 24 * 60) {
-    return '1日前'
+  if (minutes % (24 * 60) === 0) {
+    return `${minutes / (24 * 60)}日前`
   }
   if (minutes % 60 === 0) {
     return `${minutes / 60}時間前`
@@ -982,6 +982,14 @@ function getPackagedAssetPath(...parts: string[]): string {
   return join(app.getAppPath(), ...parts)
 }
 
+function getAppIconPath(): string {
+  // Windowsのタスクバーは .ico の方が安定して反映される。
+  return getPackagedAssetPath(
+    'build',
+    process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+  )
+}
+
 async function upsertSchedule(input: ScheduleInput): Promise<Schedule[]> {
   // id があれば更新、なければ新規作成として保存する。
   const { id, item: nextItem } = validateScheduleInput(input)
@@ -1055,7 +1063,7 @@ async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
 
 function createWindow(): InstanceType<typeof BrowserWindow> {
   // React画面を表示する BrowserWindow。preload 経由で安全にIPCだけ公開する。
-  const windowIconPath = getPackagedAssetPath('build', 'icon.png')
+  const windowIconPath = getAppIconPath()
   const win = new BrowserWindow({
     width: 1200,
     height: 760,
@@ -1103,7 +1111,7 @@ function createTray(): void {
   const fallbackIcon = nativeImage.createFromDataURL(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAKUlEQVR4nGNkYGD4z0AEYBxVSFJgqJQwajA0mEqYGSQxQDRA1GBoAAB2kwQVcC+hFgAAAABJRU5ErkJggg==',
   )
-  const trayIconPath = getPackagedAssetPath('build', 'icon.png')
+  const trayIconPath = getAppIconPath()
   const trayIcon = nativeImage.createFromPath(trayIconPath)
   const icon = trayIcon.isEmpty()
     ? fallbackIcon

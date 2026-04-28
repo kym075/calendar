@@ -871,7 +871,7 @@ export function SchedulePanel({
                   key={option}
                   type="button"
                   className={[
-                    'flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold transition',
+                    'flex h-8 w-8 items-center justify-center rounded-full border text-[10px] font-bold transition',
                     option === 'yellow' ? 'text-slate-900' : 'text-white',
                     colorClassMap[option],
                     color === option

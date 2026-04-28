@@ -107,17 +107,29 @@ export function WeekView({
               : index === 6
                 ? 'text-sky-500'
                 : 'text-slate-500 dark:text-slate-400'
+          const weekendBorderClass =
+            index === 0
+              ? 'border-rose-200 dark:border-rose-500/40'
+              : index === 6
+                ? 'border-sky-200 dark:border-sky-500/40'
+                : 'border-slate-200 dark:border-slate-700'
 
           return (
             <button
               key={key}
               type="button"
               className={[
-                'flex min-h-28 flex-col rounded-lg border p-2 text-left',
+                'relative flex min-h-36 flex-col overflow-hidden rounded-lg border p-2 text-left after:pointer-events-none after:absolute after:inset-0 after:rounded-lg md:min-h-0',
                 selected
-                  ? 'border-sky-400 ring-2 ring-sky-500 ring-inset'
-                  : 'border-slate-200 dark:border-slate-700',
-                'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
+                  ? 'border-sky-500 bg-sky-100 shadow-[inset_0_0_0_1px_rgb(2_132_199)] after:border-2 after:border-sky-500 dark:border-sky-300 dark:bg-sky-950/55 dark:shadow-[inset_0_0_0_1px_rgb(125_211_252)] dark:after:border-sky-300'
+                  : today
+                    ? 'border-amber-400 bg-amber-50 shadow-[inset_0_0_0_1px_rgb(251_191_36)] dark:border-amber-300/80 dark:bg-amber-950/45 dark:shadow-[inset_0_0_0_1px_rgb(252_211_77)]'
+                    : weekendBorderClass,
+                selected
+                  ? 'hover:bg-sky-100 dark:hover:bg-sky-950/65'
+                  : today
+                    ? 'hover:bg-amber-50 dark:hover:bg-amber-950/55'
+                    : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800',
               ].join(' ')}
               onClick={(event) => handleDateTap(date, key, event.timeStamp)}
             >
@@ -126,7 +138,11 @@ export function WeekView({
                   <span
                     className={[
                       'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
-                      today ? 'bg-sky-500 text-white' : 'text-slate-700 dark:text-slate-100',
+                      selected
+                        ? 'bg-sky-600 text-white dark:bg-sky-300 dark:text-slate-950'
+                        : today
+                          ? 'bg-amber-400 text-slate-950 shadow-sm dark:bg-amber-300'
+                          : 'text-slate-700 dark:text-slate-100',
                     ].join(' ')}
                   >
                     {format(date, 'd')}
@@ -151,13 +167,13 @@ export function WeekView({
                 </p>
               )}
 
-              <div className="mt-2 space-y-1">
+              <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
                 {daySchedules.length === 0 && (
                   <p className="text-[11px] text-slate-400 dark:text-slate-500">
                     予定なし
                   </p>
                 )}
-                {daySchedules.slice(0, 3).map((schedule) => (
+                {daySchedules.slice(0, 10).map((schedule) => (
                   <div key={schedule.id} className="flex items-start gap-1.5">
                     <span
                       className={[
@@ -175,9 +191,9 @@ export function WeekView({
                     </div>
                   </div>
                 ))}
-                {daySchedules.length > 3 && (
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    +{daySchedules.length - 3}件
+                {daySchedules.length > 10 && (
+                  <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                    ほか {daySchedules.length - 10} 件の予定があります
                   </p>
                 )}
               </div>

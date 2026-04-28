@@ -80,6 +80,7 @@ function App() {
     const nextThemeClass = `theme-${settings.colorTheme}`
     document.body.classList.remove(...themeClassNames)
     document.body.classList.add(nextThemeClass)
+    document.documentElement.classList.toggle('dark', settings.colorTheme !== 'white')
 
     if (settings.colorTheme === 'white') {
       document.documentElement.style.colorScheme = 'light'
