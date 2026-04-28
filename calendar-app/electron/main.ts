@@ -171,6 +171,10 @@ function normalizeSettingsRecord(value: unknown): AppSettings {
     weatherRegion: isWeatherRegion(value.weatherRegion)
       ? value.weatherRegion
       : defaultAppSettings.weatherRegion,
+    startupLaunchEnabled:
+      typeof value.startupLaunchEnabled === 'boolean'
+        ? value.startupLaunchEnabled
+        : defaultAppSettings.startupLaunchEnabled,
   }
 }
 
@@ -184,6 +188,7 @@ function mergeSettings(input: AppSettingsInput): AppSettings {
   const nextViewMode = input.preferredViewMode
   const nextColorTheme = input.colorTheme
   const nextWeatherRegion = input.weatherRegion
+  const nextStartupLaunchEnabled = input.startupLaunchEnabled
 
   if (
     nextLeadMinutes !== undefined &&
@@ -200,6 +205,12 @@ function mergeSettings(input: AppSettingsInput): AppSettings {
   if (nextWeatherRegion !== undefined && !isWeatherRegion(nextWeatherRegion)) {
     throw new Error('地域の設定が不正です。')
   }
+  if (
+    nextStartupLaunchEnabled !== undefined &&
+    typeof nextStartupLaunchEnabled !== 'boolean'
+  ) {
+    throw new Error('自動起動の設定が不正です。')
+  }
 
   return {
     notificationLeadMinutes:
@@ -207,6 +218,8 @@ function mergeSettings(input: AppSettingsInput): AppSettings {
     preferredViewMode: nextViewMode ?? appSettings.preferredViewMode,
     colorTheme: nextColorTheme ?? appSettings.colorTheme,
     weatherRegion: nextWeatherRegion ?? appSettings.weatherRegion,
+    startupLaunchEnabled:
+      nextStartupLaunchEnabled ?? appSettings.startupLaunchEnabled,
   }
 }
 
@@ -948,16 +961,16 @@ async function listDailyWeatherByRange(
   }
 }
 
-function configureAutoLaunch(): void {
-  // 配布版のWindowsアプリだけ、ログイン時にバックグラウンド起動する。
+function configureAutoLaunch(enabled: boolean): void {
+  // 配布版のWindowsアプリだけ、設定に応じてログイン時起動を切り替える。
   if (!app.isPackaged || process.platform !== 'win32') {
     return
   }
 
   app.setLoginItemSettings({
-    openAtLogin: true,
+    openAtLogin: enabled,
     path: process.execPath,
-    args: [STARTUP_ARG],
+    args: enabled ? [STARTUP_ARG] : [],
   })
 }
 
@@ -1025,11 +1038,16 @@ async function updateSettings(input: AppSettingsInput): Promise<AppSettings> {
   const nextSettings = mergeSettings(input)
   const weatherRegionChanged =
     nextSettings.weatherRegion !== appSettings.weatherRegion
+  const startupLaunchChanged =
+    nextSettings.startupLaunchEnabled !== appSettings.startupLaunchEnabled
   appSettings = nextSettings
   await saveSettingsToDisk(nextSettings)
   if (weatherRegionChanged) {
     weatherRangeCache.clear()
     weatherRangeRequests.clear()
+  }
+  if (startupLaunchChanged) {
+    configureAutoLaunch(nextSettings.startupLaunchEnabled)
   }
   scheduleUpcomingNotifications()
   return nextSettings
@@ -1170,7 +1188,7 @@ app.whenReady().then(async () => {
   appSettings = await loadSettingsFromDisk()
   schedules = await loadSchedulesFromDisk()
   scheduleUpcomingNotifications()
-  configureAutoLaunch()
+  configureAutoLaunch(appSettings.startupLaunchEnabled)
 
   Menu.setApplicationMenu(null)
   registerIpcHandlers()
