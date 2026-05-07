@@ -1,5 +1,6 @@
 import electron from 'electron'
 import { randomUUID } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -58,6 +59,7 @@ const NOTIFICATION_MISSED_GRACE_MS = 5 * MINUTE_MS
 const STARTUP_ARG = '--startup'
 const APP_DISPLAY_NAME = 'Toki'
 const APP_USER_MODEL_ID = 'com.personal.calendarapp'
+const WINDOWS_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 interface WeatherLocation {
   latitude: number
   longitude: number
@@ -967,10 +969,45 @@ function configureAutoLaunch(enabled: boolean): void {
     return
   }
 
+  const startupArgs = enabled ? [STARTUP_ARG] : []
   app.setLoginItemSettings({
     openAtLogin: enabled,
     path: process.execPath,
-    args: enabled ? [STARTUP_ARG] : [],
+    args: startupArgs,
+  })
+
+  configureWindowsRunKeyAutoLaunch(enabled, startupArgs)
+}
+
+function quoteWindowsCommandArg(value: string): string {
+  return `"${value.replaceAll('"', '\\"')}"`
+}
+
+function configureWindowsRunKeyAutoLaunch(
+  enabled: boolean,
+  startupArgs: string[],
+): void {
+  const command = [
+    quoteWindowsCommandArg(process.execPath),
+    ...startupArgs,
+  ].join(' ')
+  const args = enabled
+    ? [
+        'add',
+        WINDOWS_RUN_KEY,
+        '/v',
+        APP_DISPLAY_NAME,
+        '/t',
+        'REG_SZ',
+        '/d',
+        command,
+        '/f',
+      ]
+    : ['delete', WINDOWS_RUN_KEY, '/v', APP_DISPLAY_NAME, '/f']
+
+  spawnSync('reg.exe', args, {
+    stdio: 'ignore',
+    windowsHide: true,
   })
 }
 
