@@ -75,7 +75,8 @@ const WEATHER_LOCATIONS: Record<WeatherRegion, WeatherLocation> = {
   fukuoka: { latitude: 33.590355, longitude: 130.401716, timezone: 'Asia/Tokyo' },
 }
 const WEATHER_CACHE_MS = 15 * MINUTE_MS
-const WEATHER_REQUEST_TIMEOUT_MS = 10_000
+const WEATHER_REQUEST_TIMEOUT_MS = 15_000
+const WEATHER_REQUEST_MAX_ATTEMPTS = 2
 const WEATHER_FORECAST_MAX_DAYS = 16
 const WEATHER_RANGE_MAX_DAYS = 370
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, Tray } =
@@ -752,28 +753,34 @@ function getWeatherLabels(weatherCode: number): {
 }
 
 async function fetchJsonWithTimeout(url: string): Promise<unknown> {
-  // 外部APIが返ってこない場合でも、10秒で処理を中断してUIへエラーを返す。
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), WEATHER_REQUEST_TIMEOUT_MS)
+  // 外部APIが返ってこない場合でも、一定時間で処理を中断してリトライする。
+  let lastError: unknown = null
 
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-    })
-    if (!response.ok) {
-      throw new Error(
-        `天気APIの取得に失敗しました。(status: ${response.status})`,
-      )
+  for (let attempt = 1; attempt <= WEATHER_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), WEATHER_REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        throw new Error(
+          `天気APIの取得に失敗しました。(status: ${response.status})`,
+        )
+      }
+      return response.json()
+    } catch (error) {
+      lastError =
+        error instanceof Error && error.name === 'AbortError'
+          ? new Error('天気APIの取得がタイムアウトしました。')
+          : error
+    } finally {
+      clearTimeout(timeout)
     }
-    return response.json()
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('天気APIの取得がタイムアウトしました。')
-    }
-    throw error
-  } finally {
-    clearTimeout(timeout)
   }
+
+  throw lastError
 }
 
 function toDailyWeatherList(value: unknown): DailyWeather[] {
@@ -834,27 +841,6 @@ function toDailyWeatherList(value: unknown): DailyWeather[] {
   return items
 }
 
-async function fetchArchiveWeather(
-  location: WeatherLocation,
-  startDate: string,
-  endDate: string,
-): Promise<DailyWeather[]> {
-  // 昨日以前は archive API から取得する。
-  const url = new URL('https://archive-api.open-meteo.com/v1/archive')
-  url.searchParams.set('latitude', String(location.latitude))
-  url.searchParams.set('longitude', String(location.longitude))
-  url.searchParams.set('timezone', location.timezone)
-  url.searchParams.set(
-    'daily',
-    'weather_code,temperature_2m_max,temperature_2m_min',
-  )
-  url.searchParams.set('start_date', startDate)
-  url.searchParams.set('end_date', endDate)
-
-  const json = await fetchJsonWithTimeout(url.toString())
-  return toDailyWeatherList(json)
-}
-
 async function fetchForecastWeather(
   location: WeatherLocation,
   startDate: string,
@@ -899,49 +885,30 @@ async function listDailyWeatherByRange(
   }
 
   const request = (async (): Promise<DailyWeather[]> => {
-    const segmentTasks: Promise<DailyWeather[]>[] = []
     const today = startOfDay(new Date())
-    const yesterday = addDays(today, -1)
     const forecastLimit = addDays(today, WEATHER_FORECAST_MAX_DAYS - 1)
 
-    // Open-Meteo は過去用と予報用でURLが違うため、必要な範囲だけ分割する。
-    if (startDay.getTime() <= yesterday.getTime()) {
-      const pastEnd =
-        endDay.getTime() <= yesterday.getTime() ? endDay : yesterday
-      segmentTasks.push(
-        fetchArchiveWeather(location, toDateKey(startDay), toDateKey(pastEnd)),
-      )
-    }
-
-    if (endDay.getTime() >= today.getTime()) {
-      const futureStart =
-        startDay.getTime() >= today.getTime() ? startDay : today
-      if (futureStart.getTime() <= forecastLimit.getTime()) {
-        const futureEnd =
-          endDay.getTime() <= forecastLimit.getTime() ? endDay : forecastLimit
-        if (futureStart.getTime() <= futureEnd.getTime()) {
-          segmentTasks.push(
-            fetchForecastWeather(
-              location,
-              toDateKey(futureStart),
-              toDateKey(futureEnd),
-            ),
-          )
-        }
-      }
-    }
-
-    if (segmentTasks.length === 0) {
+    if (
+      endDay.getTime() < today.getTime() ||
+      startDay.getTime() > forecastLimit.getTime()
+    ) {
       return []
     }
 
-    const segmentResults = await Promise.all(segmentTasks)
+    const forecastStart =
+      startDay.getTime() >= today.getTime() ? startDay : today
+    const forecastEnd =
+      endDay.getTime() <= forecastLimit.getTime() ? endDay : forecastLimit
+    const forecastItems = await fetchForecastWeather(
+      location,
+      toDateKey(forecastStart),
+      toDateKey(forecastEnd),
+    )
+
     const byDate = new Map<string, DailyWeather>()
-    for (const segment of segmentResults) {
-      for (const item of segment) {
-        if (item.date >= startDate && item.date <= endDate) {
-          byDate.set(item.date, item)
-        }
+    for (const item of forecastItems) {
+      if (item.date >= startDate && item.date <= endDate) {
+        byDate.set(item.date, item)
       }
     }
 
